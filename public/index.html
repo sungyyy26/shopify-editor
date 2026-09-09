@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>Shopify Editor</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<h1>Shopify 일괄 편집기</h1>
+
+<section class="card">
+  <h2>조건</h2>
+  <p class="hint">아래 항목 중 하나 이상만 입력하면 됩니다.</p>
+  <label>제목 <input type="text" id="cond-title" placeholder="제목에 포함된 텍스트" /></label>
+  <label>URL 핸들 <input type="text" id="cond-handle" placeholder="예: ad-202609-4288" /></label>
+  <fieldset>
+    <legend>상태 (복수 선택 가능)</legend>
+    <label><input type="checkbox" name="cond-status" value="all" /> 전체 상태</label>
+    <label><input type="checkbox" name="cond-status" value="unpublished" /> 미게시</label>
+    <label><input type="checkbox" name="cond-status" value="active" /> 활성</label>
+    <label><input type="checkbox" name="cond-status" value="draft" /> 초안</label>
+  </fieldset>
+  <label>태그 <input type="text" id="cond-tags" placeholder="쉼표로 구분" /></label>
+</section>
+
+<section class="card">
+  <h2>수정사항</h2>
+  <label>제목 <input type="text" id="mod-title" placeholder="새 제목 (비워두면 유지)" /></label>
+  <label>설명 (HTML) <textarea id="mod-description" rows="6" placeholder="HTML 코드"></textarea></label>
+
+  <fieldset>
+    <legend>미디어</legend>
+    <label>정보 (미디어 이미지 제목) <input type="text" id="media-info" placeholder="쇼피파이에 등록된 이미지 제목으로 검색" /></label>
+    <label>순서 <input type="number" id="media-order" min="1" placeholder="예: 2" /></label>
+    <div class="hint">기타</div>
+    <label><input type="radio" name="media-mode" value="insert" /> 삽입 (해당 순서에 끼워넣고 이후 순서 밀림)</label>
+    <label><input type="radio" name="media-mode" value="overwrite" /> 덮어쓰기 (해당 순서 이미지만 교체)</label>
+  </fieldset>
+</section>
+
+<section class="card">
+  <button id="btn-search">조건에 맞는 페이지 검색</button>
+  <button id="btn-apply" disabled>검색된 페이지에 수정사항 적용</button>
+</section>
+
+<section class="card">
+  <h2>결과</h2>
+  <div id="results"></div>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>

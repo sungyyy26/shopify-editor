@@ -1,0 +1,13 @@
+body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+h1 { font-size: 1.4rem; }
+.card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+label { display: block; margin: 0.5rem 0; }
+input[type="text"], input[type="number"], textarea { width: 100%; box-sizing: border-box; padding: 0.4rem; margin-top: 0.2rem; }
+fieldset { border: 1px solid #ddd; border-radius: 6px; margin: 0.75rem 0; }
+.hint { color: #666; font-size: 0.85rem; }
+button { padding: 0.5rem 1rem; margin-right: 0.5rem; cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: 0.5; }
+table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+th, td { text-align: left; border-bottom: 1px solid #eee; padding: 0.3rem 0.4rem; font-size: 0.9rem; }
+.ok { color: #0a7c2f; }
+.fail { color: #c0392b; }
