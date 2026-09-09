@@ -477,6 +477,25 @@ async function confirmStep3() {
 let allJobs = [];
 let jobsPage = 1;
 
+document.getElementById("clearJobsBtn").addEventListener("click", async () => {
+  if (!allJobs.length) return;
+  if (!confirm("작업 내역을 전체 삭제하시겠습니까? 되돌릴 수 없습니다.")) return;
+  try {
+    await api("DELETE", "/api/jobs");
+    currentJobId = null;
+    currentJobData = null;
+    setTabsEnabled(false);
+    setStep(1);
+    document.getElementById("step1Results").innerHTML = "";
+    document.getElementById("step1NextWrap").hidden = true;
+    jobsPage = 1;
+    showToast("작업 내역을 전체 삭제했습니다.");
+    await refreshJobs();
+  } catch (err) {
+    showToast("삭제 실패: " + err.message);
+  }
+});
+
 function jobSummaryLine(job) {
   const f = job.filter || {};
   const parts = [

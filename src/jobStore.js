@@ -46,4 +46,8 @@ function remove(id) {
   writeAll(readAll().filter((j) => j.id !== id));
 }
 
-module.exports = { list, get, create, update, remove };
+function removeAll() {
+  writeAll([]);
+}
+
+module.exports = { list, get, create, update, remove, removeAll };

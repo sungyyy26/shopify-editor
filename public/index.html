@@ -77,7 +77,13 @@
   </div>
 
   <section class="history">
-    <div class="history-head"><h2>작업 내역</h2><span class="count-badge" id="countBadge">0건</span></div>
+    <div class="history-head">
+      <h2>작업 내역</h2>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span class="count-badge" id="countBadge">0건</span>
+        <button type="button" class="btn-secondary" id="clearJobsBtn">전체 삭제</button>
+      </div>
+    </div>
     <div id="jobList"><p class="empty">아직 검색한 작업이 없습니다.</p></div>
   </section>
 </div>

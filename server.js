@@ -246,6 +246,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && pathname === "/api/jobs") return sendJson(res, 200, { jobs: jobStore.list() });
     if (req.method === "POST" && pathname === "/api/jobs")
       return sendJson(res, 200, await handleCreateJob(await readJsonBody(req)));
+    if (req.method === "DELETE" && pathname === "/api/jobs") {
+      jobStore.removeAll();
+      return sendJson(res, 200, { ok: true });
+    }
 
     if (jobMatch) {
       const [, id, , action] = jobMatch;
