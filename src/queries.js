@@ -5,9 +5,10 @@ const STATUS_CLAUSE = {
   unpublished: "published_status:unpublished",
 };
 
-function buildProductSearchQuery({ title, statuses, tags, handle }) {
+// 제목은 특수문자(#, +, [, ] 등)가 Shopify 검색 쿼리 문법과 충돌해 결과가 누락될 수 있어
+// 여기서는 제외하고, 서버에서 받아온 결과를 자바스크립트로 다시 필터링한다.
+function buildProductSearchQuery({ statuses, tags, handle }) {
   const clauses = [];
-  if (title && title.trim()) clauses.push(`title:*${title.trim()}*`);
   if (handle && handle.trim()) clauses.push(`handle:${handle.trim()}`);
   if (tags && tags.trim()) {
     tags
@@ -25,21 +26,31 @@ function buildProductSearchQuery({ title, statuses, tags, handle }) {
   return clauses.join(" AND ");
 }
 
+const PRODUCT_FIELDS = `
+  id
+  title
+  handle
+  status
+  tags
+  onlineStorePreviewUrl
+  media(first: 50) {
+    edges { node { id alt } }
+  }
+`;
+
 const PRODUCT_SEARCH = `
-  query SearchProducts($query: String!) {
-    products(first: 250, query: $query) {
-      edges {
-        node {
-          id
-          title
-          handle
-          status
-          tags
-          media(first: 50) {
-            edges { node { id } }
-          }
-        }
-      }
+  query SearchProducts($query: String!, $cursor: String) {
+    products(first: 250, query: $query, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      edges { node { ${PRODUCT_FIELDS} } }
+    }
+  }
+`;
+
+const PRODUCTS_BY_IDS = `
+  query ProductsByIds($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on Product { ${PRODUCT_FIELDS} }
     }
   }
 `;
@@ -97,6 +108,7 @@ const PRODUCT_DELETE_MEDIA = `
 module.exports = {
   buildProductSearchQuery,
   PRODUCT_SEARCH,
+  PRODUCTS_BY_IDS,
   PRODUCT_UPDATE,
   FIND_FILE_BY_TITLE,
   PRODUCT_CREATE_MEDIA,

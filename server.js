@@ -10,6 +10,7 @@ const { shopifyGraphQL } = require("./src/shopify");
 const {
   buildProductSearchQuery,
   PRODUCT_SEARCH,
+  PRODUCTS_BY_IDS,
   PRODUCT_UPDATE,
   FIND_FILE_BY_TITLE,
   PRODUCT_CREATE_MEDIA,
@@ -19,19 +20,50 @@ const {
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
+const MAX_PAGES = 20; // 안전장치: 최대 5000개 상품까지 조회
+
+function mapProductNode(node) {
+  return {
+    id: node.id,
+    title: node.title,
+    handle: node.handle,
+    status: node.status,
+    tags: node.tags,
+    url: node.onlineStorePreviewUrl,
+    media: node.media.edges.map((m) => ({ id: m.node.id, alt: m.node.alt })),
+  };
+}
 
 async function searchProducts(conditions) {
+  const { title } = conditions || {};
+  const hasCondition =
+    (title && title.trim()) ||
+    (conditions.handle && conditions.handle.trim()) ||
+    (conditions.tags && conditions.tags.trim()) ||
+    (conditions.statuses || []).length;
+  if (!hasCondition) throw new Error("조건을 최소 하나 이상 입력해주세요");
+
   const query = buildProductSearchQuery(conditions);
-  if (!query) throw new Error("조건을 최소 하나 이상 입력해주세요");
-  const data = await shopifyGraphQL(PRODUCT_SEARCH, { query });
-  return data.products.edges.map((e) => ({
-    id: e.node.id,
-    title: e.node.title,
-    handle: e.node.handle,
-    status: e.node.status,
-    tags: e.node.tags,
-    mediaIds: e.node.media.edges.map((m) => m.node.id),
-  }));
+  let products = [];
+  let cursor = null;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const data = await shopifyGraphQL(PRODUCT_SEARCH, { query, cursor });
+    products = products.concat(data.products.edges.map((e) => mapProductNode(e.node)));
+    if (!data.products.pageInfo.hasNextPage) break;
+    cursor = data.products.pageInfo.endCursor;
+  }
+
+  // 제목은 특수문자 문제로 서버 쿼리에서 제외했으므로 여기서 부분 일치로 필터링
+  if (title && title.trim()) {
+    const needle = title.trim().toLowerCase();
+    products = products.filter((p) => p.title.toLowerCase().includes(needle));
+  }
+  return products;
+}
+
+async function fetchProductsByIds(ids) {
+  const data = await shopifyGraphQL(PRODUCTS_BY_IDS, { ids });
+  return data.nodes.filter(Boolean).map(mapProductNode);
 }
 
 async function findFileUrlByTitle(title) {
@@ -45,6 +77,11 @@ async function findFileUrlByTitle(title) {
 
 // 순서(1-based)를 삽입/덮어쓰기 정책에 따라 상품 미디어 목록에 반영
 async function applyMedia(product, media) {
+  // 이미 같은 이미지(제목/alt 일치)가 이 상품에 등록되어 있으면 위치와 무관하게 건너뜀
+  if (product.media.some((m) => m.alt === media.info)) {
+    return { ok: true, message: `이미 등록된 이미지입니다 (건너뜀): "${media.info}"` };
+  }
+
   const url = await findFileUrlByTitle(media.info);
   if (!url) {
     return { ok: false, message: `미디어 "${media.info}"를 쇼피파이에서 찾지 못했습니다` };
@@ -53,7 +90,7 @@ async function applyMedia(product, media) {
   const position = Math.max(1, parseInt(media.order, 10) || 1);
   let oldMediaIdAtPosition = null;
   if (media.mode === "overwrite") {
-    oldMediaIdAtPosition = product.mediaIds[position - 1] || null;
+    oldMediaIdAtPosition = (product.media[position - 1] || {}).id || null;
   }
 
   const created = await shopifyGraphQL(PRODUCT_CREATE_MEDIA, {
@@ -87,11 +124,12 @@ async function handleSearch(body) {
 }
 
 async function handleApply(body) {
-  const { conditions, modifications } = body;
-  const products = await searchProducts(conditions || {});
+  const { productIds, modifications } = body;
+  if (!productIds || !productIds.length) throw new Error("적용할 페이지를 선택해주세요");
+  const products = await fetchProductsByIds(productIds);
   const results = [];
   for (const product of products) {
-    const entry = { id: product.id, title: product.title, steps: [] };
+    const entry = { id: product.id, title: product.title, url: product.url, steps: [] };
 
     const input = { id: product.id };
     if (modifications.title && modifications.title.trim()) input.title = modifications.title;
