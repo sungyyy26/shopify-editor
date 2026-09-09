@@ -1,6 +1,15 @@
 const resultsEl = document.getElementById("results");
+const applyResultsEl = document.getElementById("apply-results");
 const applyBtn = document.getElementById("btn-apply");
 let lastConditions = null;
+
+const statusSummary = document.getElementById("status-summary");
+document.querySelectorAll('input[name="cond-status"]').forEach((el) => {
+  el.addEventListener("change", () => {
+    const checked = document.querySelectorAll('input[name="cond-status"]:checked');
+    statusSummary.textContent = checked.length ? `상태 선택 (${checked.length})` : "상태 선택";
+  });
+});
 
 function readConditions() {
   const statuses = Array.from(
@@ -48,7 +57,7 @@ document.getElementById("btn-search").addEventListener("click", async () => {
 
 document.getElementById("btn-apply").addEventListener("click", async () => {
   const modifications = readModifications();
-  resultsEl.textContent = "적용 중...";
+  applyResultsEl.textContent = "적용 중...";
   try {
     const res = await fetch("/api/apply", {
       method: "POST",
@@ -59,7 +68,7 @@ document.getElementById("btn-apply").addEventListener("click", async () => {
     if (!res.ok) throw new Error(data.error);
     renderResults(data.results);
   } catch (err) {
-    resultsEl.textContent = "오류: " + err.message;
+    applyResultsEl.textContent = "오류: " + err.message;
   }
 });
 
@@ -83,5 +92,5 @@ function renderResults(results) {
       return `<tr><td>${r.title}</td><td>${steps}</td></tr>`;
     })
     .join("");
-  resultsEl.innerHTML = `<table><tr><th>제목</th><th>결과</th></tr>${rows}</table>`;
+  applyResultsEl.innerHTML = `<table><tr><th>제목</th><th>결과</th></tr>${rows}</table>`;
 }
