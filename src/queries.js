@@ -5,18 +5,12 @@ const STATUS_CLAUSE = {
   unpublished: "published_status:unpublished",
 };
 
-// 제목은 특수문자(#, +, [, ] 등)가 Shopify 검색 쿼리 문법과 충돌해 결과가 누락될 수 있어
-// 여기서는 제외하고, 서버에서 받아온 결과를 자바스크립트로 다시 필터링한다.
-function buildProductSearchQuery({ statuses, tags, handle }) {
+// 제목/태그는 부분 일치("포함")를 기대하는데, Shopify의 tag: 필터는 완전 일치만 지원하고
+// 특수문자(#, +, [, ] 등)는 검색 쿼리 문법과 충돌할 수 있어 둘 다 서버 쿼리에서 제외하고
+// 서버에서 받아온 결과를 자바스크립트로 다시 필터링한다.
+function buildProductSearchQuery({ statuses, handle }) {
   const clauses = [];
   if (handle && handle.trim()) clauses.push(`handle:${handle.trim()}`);
-  if (tags && tags.trim()) {
-    tags
-      .split(",")
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .forEach((t) => clauses.push(`tag:${t}`));
-  }
   const activeStatuses = (statuses || []).filter(
     (s) => s && s !== "all" && STATUS_CLAUSE[s]
   );

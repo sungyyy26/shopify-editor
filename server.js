@@ -35,11 +35,11 @@ function mapProductNode(node) {
 }
 
 async function searchProducts(conditions) {
-  const { title } = conditions || {};
+  const { title, tags } = conditions || {};
   const hasCondition =
     (title && title.trim()) ||
     (conditions.handle && conditions.handle.trim()) ||
-    (conditions.tags && conditions.tags.trim()) ||
+    (tags && tags.trim()) ||
     (conditions.statuses || []).length;
   if (!hasCondition) throw new Error("조건을 최소 하나 이상 입력해주세요");
 
@@ -53,10 +53,17 @@ async function searchProducts(conditions) {
     cursor = data.products.pageInfo.endCursor;
   }
 
-  // 제목은 특수문자 문제로 서버 쿼리에서 제외했으므로 여기서 부분 일치로 필터링
+  // 제목/태그는 부분 일치를 기대하므로("포함") 서버 쿼리 대신 여기서 필터링
   if (title && title.trim()) {
     const needle = title.trim().toLowerCase();
     products = products.filter((p) => p.title.toLowerCase().includes(needle));
+  }
+  if (tags && tags.trim()) {
+    const needles = tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+    products = products.filter((p) => {
+      const productTags = p.tags.map((t) => t.toLowerCase());
+      return needles.every((needle) => productTags.some((t) => t.includes(needle)));
+    });
   }
   return products;
 }
