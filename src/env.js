@@ -5,7 +5,10 @@ const path = require("path");
 function loadEnv() {
   const envPath = path.join(__dirname, "..", ".env");
   if (!fs.existsSync(envPath)) return;
-  const lines = fs.readFileSync(envPath, "utf8").split("\n");
+  // Windows 메모장은 새 파일을 UTF-8 BOM으로 저장하는 경우가 많아 제거
+  let content = fs.readFileSync(envPath, "utf8");
+  if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
+  const lines = content.split("\n");
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
