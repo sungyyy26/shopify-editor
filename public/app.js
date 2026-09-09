@@ -1,3 +1,10 @@
+fetch("/api/status")
+  .then((res) => res.json())
+  .then((data) => {
+    document.getElementById("connect-banner").hidden = data.connected;
+    document.getElementById("app").hidden = !data.connected;
+  });
+
 const resultsEl = document.getElementById("results");
 const applyResultsEl = document.getElementById("apply-results");
 const applyBtn = document.getElementById("btn-apply");

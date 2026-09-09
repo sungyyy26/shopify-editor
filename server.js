@@ -1,9 +1,11 @@
 const http = require("http");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const { loadEnv } = require("./src/env");
+const { loadEnv, setEnvValue } = require("./src/env");
 loadEnv();
 
+const { buildAuthorizeUrl, verifyHmac, exchangeCodeForToken } = require("./src/oauth");
 const { shopifyGraphQL } = require("./src/shopify");
 const {
   buildProductSearchQuery,
@@ -116,8 +118,8 @@ async function handleApply(body) {
   return { results };
 }
 
-function serveStatic(req, res) {
-  let filePath = req.url === "/" ? "/index.html" : req.url;
+function serveStatic(req, res, pathname) {
+  let filePath = pathname === "/" ? "/index.html" : pathname;
   filePath = path.join(PUBLIC_DIR, path.normalize(filePath).replace(/^(\.\.[/\\])+/, ""));
   fs.readFile(filePath, (err, data) => {
     if (err) {
@@ -148,11 +150,74 @@ function readJsonBody(req) {
 
 const ROUTES = { "/api/search": handleSearch, "/api/apply": handleApply };
 
+const SCOPES = "read_products,write_products,read_files";
+const APP_URL = process.env.APP_URL || "http://localhost:3000";
+const REDIRECT_URI = `${APP_URL}/auth/callback`;
+let oauthState = null;
+
+function startAuth(req, res) {
+  const { SHOPIFY_STORE_DOMAIN, SHOPIFY_API_KEY } = process.env;
+  if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_API_KEY) {
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end(".env에 SHOPIFY_STORE_DOMAIN / SHOPIFY_API_KEY를 먼저 설정하세요");
+    return;
+  }
+  oauthState = crypto.randomBytes(16).toString("hex");
+  const url = buildAuthorizeUrl({
+    shop: SHOPIFY_STORE_DOMAIN,
+    apiKey: SHOPIFY_API_KEY,
+    scopes: SCOPES,
+    redirectUri: REDIRECT_URI,
+    state: oauthState,
+  });
+  res.writeHead(302, { Location: url });
+  res.end();
+}
+
+async function handleAuthCallback(req, res, query) {
+  const { SHOPIFY_STORE_DOMAIN, SHOPIFY_API_KEY, SHOPIFY_API_SECRET } = process.env;
+  if (query.state !== oauthState) {
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("잘못된 요청입니다 (state 불일치). 처음부터 다시 시도해주세요: /auth");
+    return;
+  }
+  if (!verifyHmac(query, SHOPIFY_API_SECRET)) {
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("서명 검증 실패 (hmac). SHOPIFY_API_SECRET을 확인하세요");
+    return;
+  }
+  try {
+    const token = await exchangeCodeForToken({
+      shop: SHOPIFY_STORE_DOMAIN,
+      apiKey: SHOPIFY_API_KEY,
+      apiSecret: SHOPIFY_API_SECRET,
+      code: query.code,
+    });
+    setEnvValue("SHOPIFY_ADMIN_ACCESS_TOKEN", token);
+    res.writeHead(302, { Location: "/" });
+    res.end();
+  } catch (err) {
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("토큰 발급 실패: " + err.message);
+  }
+}
+
 const server = http.createServer(async (req, res) => {
-  if (req.method === "POST" && ROUTES[req.url]) {
+  const { pathname, searchParams } = new URL(req.url, "http://localhost");
+
+  if (req.method === "GET" && pathname === "/auth") return startAuth(req, res);
+  if (req.method === "GET" && pathname === "/auth/callback")
+    return handleAuthCallback(req, res, Object.fromEntries(searchParams));
+  if (req.method === "GET" && pathname === "/api/status") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ connected: Boolean(process.env.SHOPIFY_ADMIN_ACCESS_TOKEN) }));
+    return;
+  }
+
+  if (req.method === "POST" && ROUTES[pathname]) {
     try {
       const body = await readJsonBody(req);
-      const result = await ROUTES[req.url](body);
+      const result = await ROUTES[pathname](body);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
     } catch (err) {
@@ -161,7 +226,7 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
-  if (req.method === "GET") return serveStatic(req, res);
+  if (req.method === "GET") return serveStatic(req, res, pathname);
   res.writeHead(404);
   res.end("Not found");
 });

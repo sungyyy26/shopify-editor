@@ -4,16 +4,20 @@
 
 ## 설정
 
-```
-cp .env.example .env
-# .env에 스토어 도메인/Admin API 액세스 토큰 입력
-npm install
-npm start
-```
-
-`http://localhost:3000` 접속.
-
-Admin API 토큰은 커스텀 앱에서 아래 scope가 필요합니다: `read_products`, `write_products`, `read_files`.
+1. Shopify Dev Dashboard에서 앱을 만들고 아래를 설정합니다.
+   - Admin API scopes: `read_products`, `write_products`, `read_files`
+   - 허용된 리디렉션 URL(s)에 `http://localhost:3000/auth/callback` 추가
+   - API credentials(자격 증명) 탭에서 클라이언트 ID / 클라이언트 시크릿(암호) 확인
+2. `.env` 파일 생성:
+   ```
+   cp .env.example .env
+   ```
+   그리고 `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_API_KEY`(클라이언트 ID), `SHOPIFY_API_SECRET`(클라이언트 시크릿)을 입력합니다.
+3. 서버 실행 (설치 필요 없음):
+   ```
+   node server.js
+   ```
+4. `http://localhost:3000` 접속 후 **Shopify 연결하기** 버튼을 눌러 OAuth 인증을 완료합니다. 완료되면 Admin API 액세스 토큰이 자동으로 `.env`에 저장됩니다.
 
 ## 동작 방식
 

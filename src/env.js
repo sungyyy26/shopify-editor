@@ -23,4 +23,17 @@ function loadEnv() {
   }
 }
 
-module.exports = { loadEnv };
+// .env 파일에 key=value를 추가하거나 기존 값을 교체하고 process.env도 갱신
+function setEnvValue(key, value) {
+  const envPath = path.join(__dirname, "..", ".env");
+  const existing = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : "";
+  const lines = existing.split("\n").filter((l) => l.trim() !== "");
+  const idx = lines.findIndex((l) => l.startsWith(key + "="));
+  const line = `${key}=${value}`;
+  if (idx === -1) lines.push(line);
+  else lines[idx] = line;
+  fs.writeFileSync(envPath, lines.join("\n") + "\n");
+  process.env[key] = value;
+}
+
+module.exports = { loadEnv, setEnvValue };
