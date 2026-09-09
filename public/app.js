@@ -24,6 +24,11 @@ function showToast(msg) {
 }
 const THUMB_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6M10 2v4.2c0 .5-.15.98-.44 1.38L6.9 11.4A3 3 0 0 0 6 13.5V20a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-6.5a3 3 0 0 0-.9-2.1l-2.66-2.82A2.3 2.3 0 0 1 14 6.2V2"/></svg>';
 function thumbTile() { return '<div class="thumb-tile">' + THUMB_SVG + "</div>"; }
+const THUMB_FALLBACK = thumbTile();
+function thumbFor(p) {
+  if (!p.thumbnail) return thumbTile();
+  return '<img class="thumb-img" src="' + esc(p.thumbnail) + '" alt="" loading="lazy" onerror="this.outerHTML=THUMB_FALLBACK">';
+}
 function statusLabelOf(code) { return { ACTIVE: "활성", DRAFT: "초안", ARCHIVED: "미게시" }[code] || code; }
 function statusClassOf(code) { return { ACTIVE: "r-active", DRAFT: "r-draft", ARCHIVED: "r-archived" }[code] || ""; }
 
@@ -44,7 +49,7 @@ function renderPager(page, totalPages, groupClass) {
 function candidateCard(p, selectable, picked) {
   return '<div class="result-card' + (selectable ? " selectable" : "") + (picked ? " picked" : "") + '" data-id="' + esc(p.id) + '">'
     + (selectable ? '<input type="checkbox" class="result-check" ' + (picked ? "checked" : "") + ">" : "")
-    + thumbTile()
+    + thumbFor(p)
     + '<div class="result-info">'
     + '<span class="r-badge ' + statusClassOf(p.status) + '">' + esc(statusLabelOf(p.status)) + "</span>"
     + '<span class="result-title">' + esc(p.title) + "</span>"

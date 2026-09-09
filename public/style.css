@@ -94,6 +94,7 @@ textarea{min-height:80px;resize:vertical;font-family:"IBM Plex Mono",monospace;f
 .result-check{margin-top:2px;flex-shrink:0;width:17px;height:17px;accent-color:var(--accent);cursor:pointer;}
 .thumb-tile{width:40px;height:40px;border-radius:10px;flex-shrink:0;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;color:var(--accent);}
 .thumb-tile svg{width:20px;height:20px;}
+.thumb-img{width:40px;height:40px;border-radius:10px;flex-shrink:0;object-fit:cover;background:var(--accent-soft);border:1px solid var(--line);}
 .result-info{min-width:0;display:flex;flex-direction:column;gap:3px;flex:1;}
 .result-title{font-family:"Gothic A1",sans-serif;font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .result-handle{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}

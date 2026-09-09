@@ -28,6 +28,7 @@ const PRODUCT_FIELDS = `
   tags
   templateSuffix
   onlineStorePreviewUrl
+  featuredImage { url }
   media(first: 50) {
     edges { node { id alt } }
   }
