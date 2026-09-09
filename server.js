@@ -7,16 +7,9 @@ loadEnv();
 
 const { buildAuthorizeUrl, verifyHmac, exchangeCodeForToken } = require("./src/oauth");
 const { shopifyGraphQL } = require("./src/shopify");
-const {
-  buildProductSearchQuery,
-  PRODUCT_SEARCH,
-  PRODUCTS_BY_IDS,
-  PRODUCT_UPDATE,
-  FIND_FILE_BY_TITLE,
-  PRODUCT_CREATE_MEDIA,
-  PRODUCT_REORDER_MEDIA,
-  PRODUCT_DELETE_MEDIA,
-} = require("./src/queries");
+const { buildProductSearchQuery, PRODUCT_SEARCH, PRODUCTS_BY_IDS } = require("./src/queries");
+const { evaluateModifications, applyModifications } = require("./src/modifications");
+const jobStore = require("./src/jobStore");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
@@ -29,17 +22,19 @@ function mapProductNode(node) {
     handle: node.handle,
     status: node.status,
     tags: node.tags,
+    template: node.templateSuffix || "",
     url: node.onlineStorePreviewUrl,
     media: node.media.edges.map((m) => ({ id: m.node.id, alt: m.node.alt })),
   };
 }
 
 async function searchProducts(conditions) {
-  const { title, tags } = conditions || {};
+  const { title, tags, template } = conditions || {};
   const hasCondition =
     (title && title.trim()) ||
     (conditions.handle && conditions.handle.trim()) ||
     (tags && tags.trim()) ||
+    (template && template.trim()) ||
     (conditions.statuses || []).length;
   if (!hasCondition) throw new Error("조건을 최소 하나 이상 입력해주세요");
 
@@ -53,7 +48,7 @@ async function searchProducts(conditions) {
     cursor = data.products.pageInfo.endCursor;
   }
 
-  // 제목/태그는 부분 일치를 기대하므로("포함") 서버 쿼리 대신 여기서 필터링
+  // 제목/태그/템플릿은 부분 일치("포함")를 기대하므로 서버 쿼리 대신 여기서 필터링
   if (title && title.trim()) {
     const needle = title.trim().toLowerCase();
     products = products.filter((p) => p.title.toLowerCase().includes(needle));
@@ -65,6 +60,10 @@ async function searchProducts(conditions) {
       return needles.every((needle) => productTags.some((t) => t.includes(needle)));
     });
   }
+  if (template && template.trim()) {
+    const needle = template.trim().toLowerCase();
+    products = products.filter((p) => p.template.toLowerCase().includes(needle));
+  }
   return products;
 }
 
@@ -73,94 +72,77 @@ async function fetchProductsByIds(ids) {
   return data.nodes.filter(Boolean).map(mapProductNode);
 }
 
-async function findFileUrlByTitle(title) {
-  const data = await shopifyGraphQL(FIND_FILE_BY_TITLE, { query: title });
-  const nodes = data.files.edges.map((e) => e.node);
-  const exact = nodes.find((n) => n.alt === title);
-  const node = exact || nodes[0];
-  if (!node) return null;
-  return node.image ? node.image.url : node.url || null;
+function newJobId() {
+  return crypto.randomUUID();
 }
 
-// 순서(1-based)를 삽입/덮어쓰기 정책에 따라 상품 미디어 목록에 반영
-async function applyMedia(product, media) {
-  // 이미 같은 이미지(제목/alt 일치)가 이 상품에 등록되어 있으면 위치와 무관하게 건너뜀
-  if (product.media.some((m) => m.alt === media.info)) {
-    return { ok: true, message: `이미 등록된 이미지입니다 (건너뜀): "${media.info}"` };
+async function handleCreateJob(body) {
+  const filter = body.filter || {};
+  const candidates = await searchProducts(filter);
+  const job = {
+    id: newJobId(),
+    createdAt: new Date().toISOString(),
+    status: "후보조회됨",
+    filter,
+    candidates,
+    edits: null,
+    selectedProductIds: null,
+    preview: null,
+    result: null,
+  };
+  jobStore.create(job);
+  return job;
+}
+
+async function handleUpdateJob(id, patch) {
+  const job = jobStore.update(id, patch);
+  if (!job) throw new Error("작업을 찾을 수 없습니다");
+  return job;
+}
+
+async function handlePreviewJob(id) {
+  const job = jobStore.get(id);
+  if (!job) throw new Error("작업을 찾을 수 없습니다");
+  const productIds = job.selectedProductIds || job.candidates.map((p) => p.id);
+  const products = await fetchProductsByIds(productIds);
+  const cache = new Map();
+  const items = [];
+  for (const product of products) {
+    const { summary } = await evaluateModifications(product, job.edits || {}, cache);
+    items.push({ title: product.title, handle: product.handle, action: summary.action, reason: summary.reason });
   }
+  const preview = { items, computedAt: new Date().toISOString() };
+  return jobStore.update(id, { preview });
+}
 
-  const url = await findFileUrlByTitle(media.info);
-  if (!url) {
-    return { ok: false, message: `미디어 "${media.info}"를 쇼피파이에서 찾지 못했습니다` };
-  }
+async function handleApplyJob(id) {
+  const job = jobStore.get(id);
+  if (!job) throw new Error("작업을 찾을 수 없습니다");
+  const productIds = job.selectedProductIds || job.candidates.map((p) => p.id);
+  if (!productIds.length) throw new Error("적용할 페이지가 없습니다");
+  jobStore.update(id, { status: "처리중" });
 
-  const position = Math.max(1, parseInt(media.order, 10) || 1);
-  let oldMediaIdAtPosition = null;
-  if (media.mode === "overwrite") {
-    oldMediaIdAtPosition = (product.media[position - 1] || {}).id || null;
-  }
-
-  const created = await shopifyGraphQL(PRODUCT_CREATE_MEDIA, {
-    productId: product.id,
-    media: [{ originalSource: url, mediaContentType: "IMAGE", alt: media.info }],
-  });
-  const createErrors = created.productCreateMedia.mediaUserErrors;
-  if (createErrors.length) return { ok: false, message: createErrors.map((e) => e.message).join(", ") };
-  const newMediaId = created.productCreateMedia.media[0].id;
-
-  const reordered = await shopifyGraphQL(PRODUCT_REORDER_MEDIA, {
-    id: product.id,
-    moves: [{ id: newMediaId, newPosition: String(position - 1) }],
-  });
-  const reorderErrors = reordered.productReorderMedia.mediaUserErrors;
-  if (reorderErrors.length) return { ok: false, message: reorderErrors.map((e) => e.message).join(", ") };
-
-  if (oldMediaIdAtPosition) {
-    await shopifyGraphQL(PRODUCT_DELETE_MEDIA, {
-      mediaIds: [oldMediaIdAtPosition],
-      productId: product.id,
+  const products = await fetchProductsByIds(productIds);
+  const cache = new Map();
+  const items = [];
+  for (const product of products) {
+    const summary = await applyModifications(product, job.edits || {}, cache);
+    items.push({
+      title: product.title,
+      handle: product.handle,
+      action: summary.action,
+      reason: summary.reason,
+      url: product.url,
     });
   }
-
-  return { ok: true };
-}
-
-async function handleSearch(body) {
-  const products = await searchProducts(body.conditions || {});
-  return { products };
-}
-
-async function handleApply(body) {
-  const { productIds, modifications } = body;
-  if (!productIds || !productIds.length) throw new Error("적용할 페이지를 선택해주세요");
-  const products = await fetchProductsByIds(productIds);
-  const results = [];
-  for (const product of products) {
-    const entry = { id: product.id, title: product.title, url: product.url, steps: [] };
-
-    const input = { id: product.id };
-    if (modifications.title && modifications.title.trim()) input.title = modifications.title;
-    if (modifications.description && modifications.description.trim())
-      input.descriptionHtml = modifications.description;
-    if (Object.keys(input).length > 1) {
-      const updated = await shopifyGraphQL(PRODUCT_UPDATE, { input });
-      const errs = updated.productUpdate.userErrors;
-      entry.steps.push(
-        errs.length
-          ? { ok: false, message: errs.map((e) => e.message).join(", ") }
-          : { ok: true, message: "제목/설명 수정 완료" }
-      );
-    }
-
-    // 미디어 미설정 시(정보 미입력) 아무것도 적용하지 않음
-    if (modifications.media && modifications.media.info && modifications.media.info.trim()) {
-      const result = await applyMedia(product, modifications.media);
-      entry.steps.push({ ...result, message: result.message || "미디어 수정 완료" });
-    }
-
-    results.push(entry);
-  }
-  return { results };
+  const result = {
+    matched: products.length,
+    updated: items.filter((i) => i.action === "apply").length,
+    errors: items.filter((i) => i.action === "error"),
+    items,
+  };
+  const status = result.errors.length ? "오류" : "완료";
+  return jobStore.update(id, { status, result });
 }
 
 function serveStatic(req, res, pathname) {
@@ -193,7 +175,10 @@ function readJsonBody(req) {
   });
 }
 
-const ROUTES = { "/api/search": handleSearch, "/api/apply": handleApply };
+function sendJson(res, status, data) {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(data));
+}
 
 const SCOPES = "read_products,write_products,read_files";
 const APP_URL = process.env.APP_URL || "http://localhost:3000";
@@ -249,31 +234,36 @@ async function handleAuthCallback(req, res, query) {
 
 const server = http.createServer(async (req, res) => {
   const { pathname, searchParams } = new URL(req.url, "http://localhost");
+  const jobMatch = pathname.match(/^\/api\/jobs\/([^/]+)(\/(preview|apply))?$/);
 
-  if (req.method === "GET" && pathname === "/auth") return startAuth(req, res);
-  if (req.method === "GET" && pathname === "/auth/callback")
-    return handleAuthCallback(req, res, Object.fromEntries(searchParams));
-  if (req.method === "GET" && pathname === "/api/status") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ connected: Boolean(process.env.SHOPIFY_ADMIN_ACCESS_TOKEN) }));
-    return;
-  }
+  try {
+    if (req.method === "GET" && pathname === "/auth") return startAuth(req, res);
+    if (req.method === "GET" && pathname === "/auth/callback")
+      return handleAuthCallback(req, res, Object.fromEntries(searchParams));
+    if (req.method === "GET" && pathname === "/api/status")
+      return sendJson(res, 200, { connected: Boolean(process.env.SHOPIFY_ADMIN_ACCESS_TOKEN) });
 
-  if (req.method === "POST" && ROUTES[pathname]) {
-    try {
-      const body = await readJsonBody(req);
-      const result = await ROUTES[pathname](body);
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(result));
-    } catch (err) {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: err.message }));
+    if (req.method === "GET" && pathname === "/api/jobs") return sendJson(res, 200, { jobs: jobStore.list() });
+    if (req.method === "POST" && pathname === "/api/jobs")
+      return sendJson(res, 200, await handleCreateJob(await readJsonBody(req)));
+
+    if (jobMatch) {
+      const [, id, , action] = jobMatch;
+      if (req.method === "PATCH" && !action) return sendJson(res, 200, await handleUpdateJob(id, await readJsonBody(req)));
+      if (req.method === "DELETE" && !action) {
+        jobStore.remove(id);
+        return sendJson(res, 200, { ok: true });
+      }
+      if (req.method === "POST" && action === "preview") return sendJson(res, 200, await handlePreviewJob(id));
+      if (req.method === "POST" && action === "apply") return sendJson(res, 200, await handleApplyJob(id));
     }
-    return;
+
+    if (req.method === "GET") return serveStatic(req, res, pathname);
+    res.writeHead(404);
+    res.end("Not found");
+  } catch (err) {
+    sendJson(res, 400, { error: err.message });
   }
-  if (req.method === "GET") return serveStatic(req, res, pathname);
-  res.writeHead(404);
-  res.end("Not found");
 });
 
 const PORT = process.env.PORT || 3000;

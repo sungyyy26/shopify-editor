@@ -26,6 +26,7 @@ const PRODUCT_FIELDS = `
   handle
   status
   tags
+  templateSuffix
   onlineStorePreviewUrl
   media(first: 50) {
     edges { node { id alt } }

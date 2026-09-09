@@ -3,81 +3,86 @@
 <head>
 <meta charset="UTF-8" />
 <title>Shopify Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@500;600;700;800;900&family=Noto+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<header class="topbar">
-  <h1>Shopify 일괄 편집기</h1>
-  <svg class="logo" viewBox="0 0 220 100" width="64" height="29" aria-label="EQB">
-    <rect x="4" y="10" width="140" height="80" rx="40" fill="none" stroke="currentColor" stroke-width="7"/>
-    <rect x="76" y="10" width="140" height="80" rx="40" fill="none" stroke="currentColor" stroke-width="7"/>
-    <text x="44" y="61" font-size="30" font-weight="700" text-anchor="middle" fill="currentColor">EQ</text>
-    <text x="181" y="61" font-size="30" font-weight="700" text-anchor="middle" fill="currentColor">B</text>
-  </svg>
-</header>
 
-<section class="card" id="connect-banner" hidden>
-  <h2>Shopify 연결</h2>
-  <p class="hint">아직 스토어에 연결되지 않았습니다. 아래 버튼을 눌러 연결하세요.</p>
-  <a href="/auth" class="btn-primary" style="display:block; text-align:center; text-decoration:none;">Shopify 연결하기</a>
-</section>
-
-<div id="app" hidden>
-<section class="card">
-  <h2>1. 조건</h2>
-  <p class="hint">아래 항목 중 하나 이상만 입력하면 됩니다.</p>
-
-  <label class="field">
-    <span>상태 (복수 선택 가능)</span>
-    <details class="dropdown" id="status-dropdown">
-      <summary id="status-summary">상태 선택</summary>
-      <div class="dropdown-panel">
-        <label><input type="checkbox" name="cond-status" value="all" /> 전체 상태</label>
-        <label><input type="checkbox" name="cond-status" value="unpublished" /> 미게시</label>
-        <label><input type="checkbox" name="cond-status" value="active" /> 활성</label>
-        <label><input type="checkbox" name="cond-status" value="draft" /> 초안</label>
-      </div>
-    </details>
-  </label>
-
-  <label class="field"><span>제목</span> <input type="text" id="cond-title" placeholder="제목에 포함된 텍스트" /></label>
-  <label class="field"><span>URL 핸들</span> <input type="text" id="cond-handle" placeholder="예: ad-202609-4288" /></label>
-  <label class="field"><span>태그</span> <input type="text" id="cond-tags" placeholder="쉼표로 구분" /></label>
-</section>
-
-<section class="card">
-  <button id="btn-search" class="btn-primary">조건에 맞는 페이지 검색</button>
-</section>
-
-<section class="card">
-  <h2>검색 결과</h2>
-  <div id="results">검색 버튼을 눌러 조건에 맞는 페이지를 확인하세요.</div>
-</section>
-
-<section class="card">
-  <h2>2. 수정사항</h2>
-  <label class="field"><span>제목</span> <input type="text" id="mod-title" placeholder="새 제목 (비워두면 유지)" /></label>
-  <label class="field"><span>설명 (HTML)</span> <textarea id="mod-description" rows="6" placeholder="HTML 코드"></textarea></label>
-
-  <fieldset>
-    <legend>미디어</legend>
-    <label class="field"><span>정보 (미디어 이미지 제목)</span> <input type="text" id="media-info" placeholder="쇼피파이에 등록된 이미지 제목으로 검색" /></label>
-    <label class="field"><span>순서</span> <input type="number" id="media-order" min="1" placeholder="예: 2" /></label>
-    <div class="hint">기타</div>
-    <label><input type="radio" name="media-mode" value="insert" /> 삽입 (해당 순서에 끼워넣고 이후 순서 밀림)</label>
-    <label><input type="radio" name="media-mode" value="overwrite" /> 덮어쓰기 (해당 순서 이미지만 교체)</label>
-  </fieldset>
-</section>
-
-<section class="card">
-  <button id="btn-apply" class="btn-primary" disabled>검색된 페이지에 수정사항 적용</button>
-</section>
-
-<section class="card">
-  <h2>적용 결과</h2>
-  <div id="apply-results"></div>
-</section>
+<div class="connect-wrap" id="connect-banner" hidden>
+  <h1>쇼피파이 일괄 편집기</h1>
+  <p class="sub" style="margin:0 auto 20px;">아직 스토어에 연결되지 않았습니다.</p>
+  <a href="/auth" class="submit" style="display:inline-block; text-decoration:none; padding:12px 26px; border-radius:980px; background:var(--accent); color:var(--accent-ink); font-family:'Gothic A1',sans-serif; font-weight:700;">Shopify 연결하기</a>
 </div>
+
+<div class="wrap" id="app" hidden>
+  <header class="top">
+    <div>
+      <p class="eyebrow">EQQUALBERRY · Product Ops</p>
+      <h1>쇼피파이 일괄 편집기</h1>
+      <p class="sub">Step 1에서 조건을 검색하고, Step 2에서 수정사항을 입력한 뒤 적용할 페이지를 고르고, Step 3에서 최종 확인 후 적용합니다.</p>
+    </div>
+    <svg class="logo" viewBox="0 0 220 100" width="56" height="25" aria-label="EQB">
+      <rect x="4" y="10" width="140" height="80" rx="40" fill="none" stroke="currentColor" stroke-width="7"/>
+      <rect x="76" y="10" width="140" height="80" rx="40" fill="none" stroke="currentColor" stroke-width="7"/>
+      <text x="44" y="61" font-size="30" font-weight="700" text-anchor="middle" fill="currentColor">EQ</text>
+      <text x="181" y="61" font-size="30" font-weight="700" text-anchor="middle" fill="currentColor">B</text>
+    </svg>
+  </header>
+
+  <div class="tabs" id="tabs">
+    <button type="button" class="tab-btn active" data-step="1"><span class="step-no">01</span>조건</button>
+    <button type="button" class="tab-btn" data-step="2" disabled><span class="step-no">02</span>수정사항 · 선택</button>
+    <button type="button" class="tab-btn" data-step="3" disabled><span class="step-no">03</span>최종 확인</button>
+  </div>
+
+  <div class="step-content" data-step-content="1">
+    <div class="panel">
+      <div class="panel-head"><span class="panel-num">01</span><span class="panel-title">조건</span></div>
+      <p class="panel-hint">아래 중 하나 이상 입력하세요.</p>
+      <form id="filterForm">
+        <div class="field">
+          <span class="lbl">상태 (복수 선택 가능)</span>
+          <div class="chiprow" id="statusChips">
+            <label class="chip" data-val="all"><input type="checkbox">전체 상태</label>
+            <label class="chip" data-val="unpublished"><input type="checkbox">미게시</label>
+            <label class="chip" data-val="active"><input type="checkbox">활성</label>
+            <label class="chip" data-val="draft"><input type="checkbox">초안</label>
+          </div>
+        </div>
+        <label class="field"><span class="lbl">제목</span><input type="text" id="f-title" placeholder="상품 제목에 포함된 단어"></label>
+        <label class="field"><span class="lbl">태그</span><input type="text" id="f-tag" placeholder="쉼표로 구분"></label>
+        <label class="field"><span class="lbl">URL 핸들</span><input type="text" id="f-handle" placeholder="예: ad-202609-4288 또는 전체 URL 붙여넣기"></label>
+        <label class="field"><span class="lbl">템플릿</span><input type="text" id="f-template" placeholder="예: landing-amazon"></label>
+        <div class="actions">
+          <span class="hint-req" id="reqHint">조건을 1개 이상 입력해야 검색할 수 있습니다.</span>
+          <button type="submit" class="submit" id="filterSubmitBtn" disabled>조건 검색</button>
+        </div>
+      </form>
+      <div id="step1Results"></div>
+      <div class="actions" id="step1NextWrap" hidden>
+        <span class="hint-req"></span>
+        <button type="button" class="submit" id="step1NextBtn">다음: 수정사항 입력 →</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="step-content" data-step-content="2" hidden>
+    <div class="panel" id="step2Panel"></div>
+  </div>
+
+  <div class="step-content" data-step-content="3" hidden>
+    <div class="panel" id="step3Panel"></div>
+  </div>
+
+  <section class="history">
+    <div class="history-head"><h2>작업 내역</h2><span class="count-badge" id="countBadge">0건</span></div>
+    <div id="jobList"><p class="empty">아직 검색한 작업이 없습니다.</p></div>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
 
 <script src="app.js"></script>
 </body>
