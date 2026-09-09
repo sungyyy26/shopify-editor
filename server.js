@@ -1,5 +1,9 @@
-require("dotenv").config();
-const express = require("express");
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
+const { loadEnv } = require("./src/env");
+loadEnv();
+
 const { shopifyGraphQL } = require("./src/shopify");
 const {
   buildProductSearchQuery,
@@ -11,9 +15,8 @@ const {
   PRODUCT_DELETE_MEDIA,
 } = require("./src/queries");
 
-const app = express();
-app.use(express.json());
-app.use(express.static("public"));
+const PUBLIC_DIR = path.join(__dirname, "public");
+const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
 
 async function searchProducts(conditions) {
   const query = buildProductSearchQuery(conditions);
@@ -76,50 +79,92 @@ async function applyMedia(product, media) {
   return { ok: true };
 }
 
-app.post("/api/search", async (req, res) => {
-  try {
-    const products = await searchProducts(req.body.conditions || {});
-    res.json({ products });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
+async function handleSearch(body) {
+  const products = await searchProducts(body.conditions || {});
+  return { products };
+}
 
-app.post("/api/apply", async (req, res) => {
-  const { conditions, modifications } = req.body;
-  try {
-    const products = await searchProducts(conditions || {});
-    const results = [];
-    for (const product of products) {
-      const entry = { id: product.id, title: product.title, steps: [] };
+async function handleApply(body) {
+  const { conditions, modifications } = body;
+  const products = await searchProducts(conditions || {});
+  const results = [];
+  for (const product of products) {
+    const entry = { id: product.id, title: product.title, steps: [] };
 
-      const input = { id: product.id };
-      if (modifications.title && modifications.title.trim()) input.title = modifications.title;
-      if (modifications.description && modifications.description.trim())
-        input.descriptionHtml = modifications.description;
-      if (Object.keys(input).length > 1) {
-        const updated = await shopifyGraphQL(PRODUCT_UPDATE, { input });
-        const errs = updated.productUpdate.userErrors;
-        entry.steps.push(
-          errs.length
-            ? { ok: false, message: errs.map((e) => e.message).join(", ") }
-            : { ok: true, message: "제목/설명 수정 완료" }
-        );
-      }
-
-      // 미디어 미설정 시(정보 미입력) 아무것도 적용하지 않음
-      if (modifications.media && modifications.media.info && modifications.media.info.trim()) {
-        const result = await applyMedia(product, modifications.media);
-        entry.steps.push({ ...result, message: result.message || "미디어 수정 완료" });
-      }
-
-      results.push(entry);
+    const input = { id: product.id };
+    if (modifications.title && modifications.title.trim()) input.title = modifications.title;
+    if (modifications.description && modifications.description.trim())
+      input.descriptionHtml = modifications.description;
+    if (Object.keys(input).length > 1) {
+      const updated = await shopifyGraphQL(PRODUCT_UPDATE, { input });
+      const errs = updated.productUpdate.userErrors;
+      entry.steps.push(
+        errs.length
+          ? { ok: false, message: errs.map((e) => e.message).join(", ") }
+          : { ok: true, message: "제목/설명 수정 완료" }
+      );
     }
-    res.json({ results });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
+
+    // 미디어 미설정 시(정보 미입력) 아무것도 적용하지 않음
+    if (modifications.media && modifications.media.info && modifications.media.info.trim()) {
+      const result = await applyMedia(product, modifications.media);
+      entry.steps.push({ ...result, message: result.message || "미디어 수정 완료" });
+    }
+
+    results.push(entry);
   }
+  return { results };
+}
+
+function serveStatic(req, res) {
+  let filePath = req.url === "/" ? "/index.html" : req.url;
+  filePath = path.join(PUBLIC_DIR, path.normalize(filePath).replace(/^(\.\.[/\\])+/, ""));
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      res.writeHead(404);
+      res.end("Not found");
+      return;
+    }
+    const ext = path.extname(filePath);
+    res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
+    res.end(data);
+  });
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", () => {
+      try {
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch (e) {
+        reject(e);
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+const ROUTES = { "/api/search": handleSearch, "/api/apply": handleApply };
+
+const server = http.createServer(async (req, res) => {
+  if (req.method === "POST" && ROUTES[req.url]) {
+    try {
+      const body = await readJsonBody(req);
+      const result = await ROUTES[req.url](body);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+    } catch (err) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+  if (req.method === "GET") return serveStatic(req, res);
+  res.writeHead(404);
+  res.end("Not found");
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Shopify Editor running on http://localhost:${PORT}`));
+server.listen(PORT, () => console.log(`Shopify Editor running on http://localhost:${PORT}`));
