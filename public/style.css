@@ -67,7 +67,8 @@ form{display:flex;flex-direction:column;gap:20px;}
 input[type=text],textarea,select{font:inherit;font-size:14px;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:11px 14px;width:100%;}
 input[type=text]:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px;}
 input[type=text]:disabled{opacity:.45;background:var(--line);cursor:not-allowed;}
-textarea{min-height:80px;resize:vertical;font-family:"IBM Plex Mono",monospace;font-size:12.5px;}
+textarea{min-height:80px;resize:vertical;}
+textarea.code-input{font-family:"IBM Plex Mono",monospace;font-size:12.5px;}
 
 .chiprow{display:flex;flex-wrap:wrap;gap:8px;}
 .chip{font-family:"Gothic A1",sans-serif;font-weight:600;font-size:12.5px;border:1px solid var(--line);background:var(--panel);color:var(--ink-dim);border-radius:999px;padding:8px 16px;cursor:pointer;user-select:none;position:relative;}

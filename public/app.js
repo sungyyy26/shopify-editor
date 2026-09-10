@@ -296,10 +296,11 @@ function mediaOpRowTpl(row, idx) {
     + (mediaOpDraft.length > 1 ? '<button type="button" class="btn-secondary media-op-remove" data-idx="' + idx + '" style="padding:4px 12px;font-size:12px;">✕ 제거</button>' : "")
     + "</div>"
     + '<div class="media-grid">'
-    + '<label class="field" style="position:relative;"><span class="lbl">정보 (등록된 이미지 제목으로 검색)</span><input type="text" id="e-m-info-' + idx + '" placeholder="예: reseller_thumbnail (이동 모드에서는 사용 안 함)" autocomplete="off"><div class="ac-list" id="e-m-info-ac-' + idx + '" hidden></div></label>'
-    + '<label class="field"><span class="lbl">순서</span><input type="text" inputmode="numeric" id="e-m-order-' + idx + '" placeholder="예: 2 (비우면 위치 무관)"></label>'
+    + '<label class="field" style="position:relative;"><span class="lbl">정보 (등록된 이미지 제목/대체 텍스트로 검색)</span><input type="text" id="e-m-info-' + idx + '" placeholder="예: reseller_thumbnail" autocomplete="off"><div class="ac-list" id="e-m-info-ac-' + idx + '" hidden></div></label>'
+    + '<label class="field"><span class="lbl">순서</span><input type="text" inputmode="numeric" id="e-m-order-' + idx + '" placeholder="예: 2"></label>'
     + '<label class="field"><span class="lbl">이동할 위치</span><input type="text" inputmode="numeric" id="e-m-moveto-' + idx + '" placeholder="예: 1" disabled></label>'
     + "</div>"
+    + '<p class="panel-hint" style="margin:-4px 0 0;">정보는 이동 모드에서 사용하지 않습니다. 삭제 모드에서 순서를 비워두면 위치와 무관하게 정보와 일치하는 이미지를 찾습니다.</p>'
     + '<div class="field"><span class="lbl">방식</span><div class="modewrap" id="editModeWrap-' + idx + '">'
     + '<label class="mode-box" data-val="insert"><input type="checkbox">추가 — 지정 순서에 끼워 넣고 이후 밀기</label>'
     + '<label class="mode-box" data-val="overwrite"><input type="checkbox">교체 — 지정 순서 이미지만 바꾸기</label>'
@@ -390,7 +391,7 @@ function renderStep2() {
     html += '<p class="panel-hint">채울 항목만 적용됩니다. 미디어는 여러 작업을 순서대로 추가해 한 번에 적용할 수 있습니다 (각 작업은 이전 작업이 이미 반영된 상태를 기준으로 계산됩니다).</p>'
       + '<form id="editForm">'
       + '<label class="field"><span class="lbl">제목</span><input type="text" id="e-title" placeholder="새 제목"></label>'
-      + '<label class="field"><span class="lbl">설명 (HTML)</span><textarea id="e-desc" placeholder="&lt;p&gt;설명 HTML&lt;/p&gt;"></textarea></label>'
+      + '<label class="field"><span class="lbl">설명 (HTML)</span><textarea id="e-desc" class="code-input" placeholder="&lt;p&gt;설명 HTML&lt;/p&gt;"></textarea></label>'
       + '<div id="mediaOpsContainer"></div>'
       + tagModeTpl()
       + '<div class="actions"><span class="hint-req">수정사항을 1개 이상 입력하세요.</span>'

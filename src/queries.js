@@ -79,6 +79,23 @@ const FIND_FILE_BY_TITLE = `
   }
 `;
 
+// 쇼피파이의 파일 검색(query)은 파일명만 검색하고 대체 텍스트(alt)는 검색하지 않는다
+// (실제 스토어 데이터로 확인됨). alt로도 찾을 수 있도록 최근 등록된 이미지를 가져와
+// 서버에서 alt 기준으로 직접 필터링하기 위한 쿼리.
+const RECENT_IMAGE_FILES = `
+  query RecentImageFiles {
+    files(first: 50, sortKey: CREATED_AT, reverse: true, query: "media_type:IMAGE") {
+      edges {
+        node {
+          id
+          alt
+          ... on MediaImage { image { url } }
+        }
+      }
+    }
+  }
+`;
+
 const PRODUCT_CREATE_MEDIA = `
   mutation ProductCreateMedia($productId: ID!, $media: [CreateMediaInput!]!) {
     productCreateMedia(productId: $productId, media: $media) {
@@ -111,6 +128,7 @@ module.exports = {
   PRODUCTS_BY_IDS,
   PRODUCT_UPDATE,
   FIND_FILE_BY_TITLE,
+  RECENT_IMAGE_FILES,
   PRODUCT_CREATE_MEDIA,
   PRODUCT_REORDER_MEDIA,
   PRODUCT_DELETE_MEDIA,

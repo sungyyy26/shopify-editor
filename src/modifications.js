@@ -1,18 +1,35 @@
 const { shopifyGraphQL } = require("./shopify");
 const {
   FIND_FILE_BY_TITLE,
+  RECENT_IMAGE_FILES,
   PRODUCT_UPDATE,
   PRODUCT_CREATE_MEDIA,
   PRODUCT_REORDER_MEDIA,
   PRODUCT_DELETE_MEDIA,
 } = require("./queries");
 
+function mapFileNode(node) {
+  return { id: node.id, alt: node.alt, url: node.image ? node.image.url : node.url || null };
+}
+
+// 쇼피파이 파일 검색은 파일명만 검색하므로(대체 텍스트는 검색 안 함), 최근 등록된
+// 이미지들을 따로 가져와 대체 텍스트 기준으로도 매칭되도록 합친다.
 async function searchFiles(query) {
-  const data = await shopifyGraphQL(FIND_FILE_BY_TITLE, { query });
-  return data.files.edges.map((e) => {
-    const n = e.node;
-    return { id: n.id, alt: n.alt, url: n.image ? n.image.url : n.url || null };
-  });
+  const [byFilename, recent] = await Promise.all([
+    shopifyGraphQL(FIND_FILE_BY_TITLE, { query }),
+    shopifyGraphQL(RECENT_IMAGE_FILES, {}),
+  ]);
+  const needle = query.trim().toLowerCase();
+  const filenameMatches = byFilename.files.edges.map((e) => mapFileNode(e.node));
+  const altMatches = recent.files.edges
+    .map((e) => mapFileNode(e.node))
+    .filter((f) => f.alt && f.alt.toLowerCase().includes(needle));
+
+  const merged = filenameMatches.slice();
+  for (const f of altMatches) {
+    if (!merged.some((m) => m.id === f.id)) merged.push(f);
+  }
+  return merged;
 }
 
 async function findFileUrlByTitle(title) {
