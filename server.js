@@ -55,10 +55,11 @@ async function searchProducts(conditions) {
     products = products.filter((p) => p.title.toLowerCase().includes(needle));
   }
   if (tags && tags.trim()) {
+    // 쉼표로 여러 태그를 입력하면 그 중 하나라도 포함하면 매칭 (OR)
     const needles = tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
     products = products.filter((p) => {
       const productTags = p.tags.map((t) => t.toLowerCase());
-      return needles.every((needle) => productTags.some((t) => t.includes(needle)));
+      return needles.some((needle) => productTags.some((t) => t.includes(needle)));
     });
   }
   if (template && template.trim()) {
