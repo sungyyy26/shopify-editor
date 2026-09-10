@@ -1,8 +1,10 @@
 // 상태 체크박스 값 -> Shopify 검색 쿼리 절 매핑
+// 쇼피파이 관리자의 실제 상태 옵션은 활성/초안/비공개 3가지이며, "비공개"는
+// status:archived에 해당한다 (published_status:unpublished가 아님).
 const STATUS_CLAUSE = {
   active: "status:active",
   draft: "status:draft",
-  unpublished: "published_status:unpublished",
+  archived: "status:archived",
 };
 
 // 제목/태그는 부분 일치("포함")를 기대하는데, Shopify의 tag: 필터는 완전 일치만 지원하고
