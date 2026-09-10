@@ -287,13 +287,15 @@ document.getElementById("step1NextBtn").addEventListener("click", () => setStep(
 const mediaModeTpl = () =>
   '<div class="media-row"><span class="lbl">미디어</span>'
   + '<div class="media-grid">'
-  + '<label class="field" style="position:relative;"><span class="lbl">정보 (등록된 이미지 제목으로 검색)</span><input type="text" id="e-m-info" placeholder="예: reseller_thumbnail" autocomplete="off"><div class="ac-list" id="e-m-info-ac" hidden></div></label>'
+  + '<label class="field" style="position:relative;"><span class="lbl">정보 (등록된 이미지 제목으로 검색)</span><input type="text" id="e-m-info" placeholder="예: reseller_thumbnail (이동 모드에서는 사용 안 함)" autocomplete="off"><div class="ac-list" id="e-m-info-ac" hidden></div></label>'
   + '<label class="field"><span class="lbl">순서</span><input type="text" inputmode="numeric" id="e-m-order" placeholder="2"></label>'
+  + '<label class="field"><span class="lbl">이동할 위치</span><input type="text" inputmode="numeric" id="e-m-moveto" placeholder="1"></label>'
   + "</div>"
   + '<div class="field"><span class="lbl">방식</span><div class="modewrap" id="editModeWrap">'
   + '<label class="mode-box" data-val="insert"><input type="checkbox">추가 — 지정 순서에 끼워 넣고 이후 밀기</label>'
   + '<label class="mode-box" data-val="overwrite"><input type="checkbox">교체 — 지정 순서 이미지만 바꾸기</label>'
   + '<label class="mode-box" data-val="delete"><input type="checkbox">삭제 — 지정 순서(또는 일치하는) 이미지 제거</label>'
+  + '<label class="mode-box" data-val="move"><input type="checkbox">이동 — 새 이미지 없이 "순서" 위치를 "이동할 위치"로 옮기기</label>'
   + "</div></div></div>";
 
 const tagModeTpl = () =>
@@ -331,7 +333,7 @@ function renderStep2() {
   const editRows = [
     ["제목", e.title || '<span class="tobe-nochange">(변경 없음)</span>'],
     ["설명", e.description ? esc(e.description.length) + "자 HTML" : '<span class="tobe-nochange">(변경 없음)</span>'],
-    ["미디어", e.media ? esc(e.media.info) + " · " + esc(e.media.order || "-") + "번 · " + esc(modeLabelMedia(e.media.mode)) : '<span class="tobe-nochange">(변경 없음)</span>'],
+    ["미디어", e.media ? esc(mediaSummaryText(e.media)) : '<span class="tobe-nochange">(변경 없음)</span>'],
     ["태그", e.tags ? esc(e.tags.value) + " · " + esc(modeLabelTags(e.tags.mode)) : '<span class="tobe-nochange">(변경 없음)</span>'],
   ];
   html += '<div class="edit-summary">' + editRows.map((r) => '<div class="edit-summary-row"><dt>' + esc(r[0]) + "</dt><dd>" + r[1] + "</dd></div>").join("") + "</div>"
@@ -378,7 +380,11 @@ function renderStep2() {
   document.getElementById("step2Confirm").addEventListener("click", confirmStep2);
 }
 
-function modeLabelMedia(m) { return { insert: "추가", overwrite: "교체", delete: "삭제" }[m] || "-"; }
+function modeLabelMedia(m) { return { insert: "추가", overwrite: "교체", delete: "삭제", move: "이동" }[m] || "-"; }
+function mediaSummaryText(m) {
+  if (m.mode === "move") return (m.order || "-") + "번 → " + (m.moveTo || "-") + "번 · 이동";
+  return (m.info || "") + " · " + (m.order || "-") + "번 · " + modeLabelMedia(m.mode);
+}
 function modeLabelTags(m) { return { add: "추가", replace: "교체", remove: "삭제" }[m] || "-"; }
 
 function wireModeWrap(wrapEl) {
@@ -440,13 +446,25 @@ function wireEditForm() {
     const title = document.getElementById("e-title").value.trim();
     const desc = document.getElementById("e-desc").value.trim();
     const info = document.getElementById("e-m-info").value.trim();
+    const order = document.getElementById("e-m-order").value.trim();
+    const moveTo = document.getElementById("e-m-moveto").value.trim();
     const tagValue = document.getElementById("e-t-value").value.trim();
+    const mediaMode = getMediaMode();
     if (title) edits.title = title;
     if (desc) edits.description = desc;
-    if (info) edits.media = { info, order: document.getElementById("e-m-order").value.trim() || null, mode: getMediaMode() };
+    if (mediaMode === "move") {
+      if (order || moveTo) edits.media = { order: order || null, moveTo: moveTo || null, mode: "move" };
+    } else if (info) {
+      edits.media = { info, order: order || null, mode: mediaMode };
+    }
     if (tagValue) edits.tags = { value: tagValue, mode: getTagMode() };
     if (!Object.keys(edits).length) { showToast("수정사항을 1개 이상 입력하세요."); return; }
-    if ((edits.media && !edits.media.mode) || (edits.tags && !edits.tags.mode)) { showToast("방식(추가/교체/삭제)을 선택하세요."); return; }
+    if (edits.media && !edits.media.mode) { showToast("미디어 방식(추가/교체/삭제/이동)을 선택하세요."); return; }
+    if (edits.media && edits.media.mode === "move" && (!edits.media.order || !edits.media.moveTo)) {
+      showToast("이동 모드에서는 순서와 이동할 위치를 모두 입력하세요.");
+      return;
+    }
+    if (edits.tags && !edits.tags.mode) { showToast("태그 방식(추가/교체/삭제)을 선택하세요."); return; }
     const btn = document.getElementById("editSubmitBtn");
     btn.disabled = true;
     try {
@@ -521,7 +539,7 @@ function renderTobe(e, preview) {
   const rows = [
     ["제목", e.title ? esc(e.title) : '<span class="tobe-nochange">(변경 없음)</span>'],
     ["설명", e.description ? "새 설명 HTML 적용됨 (" + e.description.length + "자)" : '<span class="tobe-nochange">(변경 없음)</span>'],
-    ["미디어", e.media ? esc(e.media.info) + " · " + esc(e.media.order || "-") + "번 · " + esc(modeLabelMedia(e.media.mode)) : '<span class="tobe-nochange">(변경 없음)</span>'],
+    ["미디어", e.media ? esc(mediaSummaryText(e.media)) : '<span class="tobe-nochange">(변경 없음)</span>'],
     ["태그", e.tags ? esc(e.tags.value) + " · " + esc(modeLabelTags(e.tags.mode)) : '<span class="tobe-nochange">(변경 없음)</span>'],
   ];
   let html = '<div class="tobe-block"><p class="tobe-head">적용 후 TO-BE</p>'
@@ -638,7 +656,7 @@ function renderJobs(jobs) {
     const editRows = [
       e.title ? ["제목", e.title] : null,
       e.description ? ["설명", e.description.length > 40 ? e.description.slice(0, 40) + "…" : e.description] : null,
-      e.media ? ["미디어", e.media.info + (e.media.order ? " · " + e.media.order + "번" : "") + (e.media.mode ? " · " + modeLabelMedia(e.media.mode) : "")] : null,
+      e.media ? ["미디어", mediaSummaryText(e.media)] : null,
       e.tags ? ["태그", e.tags.value + (e.tags.mode ? " · " + modeLabelTags(e.tags.mode) : "")] : null,
     ].filter(Boolean);
     const status = job.status || "후보조회됨";

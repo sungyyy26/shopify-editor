@@ -44,11 +44,32 @@ function planTags(product, tagsMod) {
   return { action: "apply", reason: `${label}: ${values.join(", ")}`, newTags };
 }
 
+// 새 이미지 등록 없이 기존 이미지 순서만 바꾼다 (정보/파일 조회 불필요, 상품에 이미
+// 저장되어 있는 media 목록 안에서만 위치를 이동).
+function planMediaMove(product, media) {
+  const from = parseInt(media.order, 10);
+  const to = parseInt(media.moveTo, 10);
+  if (!from || !to) return { action: "error", reason: "이동 순서 값이 올바르지 않음" };
+  const fromItem = product.media[from - 1];
+  if (!fromItem) return { action: "skip", reason: `${from}번 위치에 이미지가 없음` };
+  if (to < 1 || to > product.media.length)
+    return { action: "skip", reason: `${to}번은 잘못된 위치 (전체 ${product.media.length}개)` };
+  if (from === to) return { action: "skip", reason: `이미 ${to}번 위치 (변경 없음)` };
+  return {
+    action: "apply",
+    reason: `이미지 순서 변경: ${from}번 → ${to}번`,
+    run: () =>
+      shopifyGraphQL(PRODUCT_REORDER_MEDIA, { id: product.id, moves: [{ id: fromItem.id, newPosition: String(to - 1) }] }),
+  };
+}
+
 // 미디어 정보(제목)가 이미 등록되어 있는지, 삭제 대상이 존재하는지 등을 판단하고
 // 실제 반영이 필요할 때 실행할 run()을 함께 반환. cache는 같은 실행 안에서 동일한
 // 미디어 제목을 여러 상품에 반복 조회하지 않도록 하는 findFileUrlByTitle 결과 캐시.
 async function planMedia(product, media, cache) {
-  if (!media || !media.info || !media.info.trim()) return null;
+  if (!media || !media.mode) return null;
+  if (media.mode === "move") return planMediaMove(product, media);
+  if (!media.info || !media.info.trim()) return null;
   const info = media.info.trim();
   const mode = media.mode;
   const existing = product.media.find((m) => m.alt === info);

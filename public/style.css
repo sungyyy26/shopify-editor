@@ -75,7 +75,7 @@ textarea{min-height:80px;resize:vertical;font-family:"IBM Plex Mono",monospace;f
 .chip:focus-within{outline:2px solid var(--accent);outline-offset:1px;}
 
 .media-row{border:1px solid var(--line);background:var(--paper);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:16px;}
-.media-grid{display:grid;grid-template-columns:1fr 88px;gap:12px;}
+.media-grid{display:grid;grid-template-columns:1fr 88px 100px;gap:12px;}
 .ac-list{position:absolute;top:100%;left:0;right:0;z-index:20;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-top:4px;max-height:220px;overflow-y:auto;box-shadow:var(--shadow);}
 .ac-item{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;font-size:12.5px;}
 .ac-item:hover{background:var(--accent-soft);}
