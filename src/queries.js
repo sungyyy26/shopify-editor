@@ -38,10 +38,10 @@ const PRODUCT_FIELDS = `
   }
 `;
 
-// 최근에 생성한 페이지가 먼저 나오도록 정렬
+// 가장 최근에 수정한 페이지가 먼저 나오도록 정렬
 const PRODUCT_SEARCH = `
   query SearchProducts($query: String!, $cursor: String) {
-    products(first: 250, query: $query, after: $cursor, sortKey: CREATED_AT, reverse: true) {
+    products(first: 250, query: $query, after: $cursor, sortKey: UPDATED_AT, reverse: true) {
       pageInfo { hasNextPage endCursor }
       edges { node { ${PRODUCT_FIELDS} } }
     }

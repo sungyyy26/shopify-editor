@@ -187,13 +187,15 @@ async function deriveMediaOpPlan(media, op, cache) {
     if (idx === -1) return { action: "skip", reason: `교체할 이미지를 찾지 못함: "${infoList.join(", ")}"` };
     if (media.some((m) => mediaDisplayName(m) === newInfo))
       return { action: "skip", reason: `이미 등록된 이미지 (건너뜀): "${newInfo}"` };
+    const newUrl = await findFileUrlByTitles([newInfo], cache);
+    if (!newUrl) return { action: "error", reason: `미디어를 쇼피파이에서 찾지 못함: "${newInfo}"` };
     const position = idx + 1;
     return {
       action: "apply",
       reason: `이미지 교체: "${infoList.join(", ")}" → "${newInfo}" (${position}번, 위치 무관하게 찾음)`,
       simulate: (arr) => {
         const copy = arr.slice();
-        copy[idx] = { id: "__pending__", alt: newInfo, url: null };
+        copy[idx] = { id: "__pending__", alt: newInfo, url: newUrl };
         return copy;
       },
       execute: makeAddMediaExecutor({ addTitles: [newInfo], position, oldId: media[idx].id, cache }),
@@ -214,7 +216,7 @@ async function deriveMediaOpPlan(media, op, cache) {
     reason: `이미지 ${mode === "insert" ? "삽입" : "교체"}: "${infoList.join(", ")}" (${position}번)`,
     simulate: (arr) => {
       const copy = arr.slice();
-      const placeholder = { id: "__pending__", alt: infoList[0], url: null };
+      const placeholder = { id: "__pending__", alt: infoList[0], url };
       if (mode === "insert") copy.splice(position - 1, 0, placeholder);
       else copy[position - 1] = placeholder;
       return copy;
@@ -230,6 +232,7 @@ async function deriveMediaOpPlan(media, op, cache) {
 
 // 여러 미디어 작업을 입력한 순서대로 미리 계산 (실제 mutation 없음). 각 작업은 이전
 // 작업들이 이미 반영된 것으로 가정한 "그 시점의" 목록을 기준으로 판단한다.
+// finalMedia는 모든 작업이 반영된 것으로 가정한 마지막 목록(AS-IS/TO-BE 미리보기 표시용)이다.
 async function previewMediaOps(product, mediaOps, cache) {
   let media = product.media.slice();
   const results = [];
@@ -239,7 +242,7 @@ async function previewMediaOps(product, mediaOps, cache) {
     results.push({ action: plan.action, reason: plan.reason });
     if (plan.action === "apply") media = plan.simulate(media);
   }
-  return results;
+  return { results, finalMedia: media };
 }
 
 // 여러 미디어 작업을 입력한 순서대로 실제 반영. 한 작업이 끝날 때마다 그 결과로
@@ -278,20 +281,40 @@ function summarize(parts) {
 }
 
 // 상품 하나에 수정사항을 적용했을 때 어떤 일이 일어날지 계산 (파일 조회 등 읽기 전용 API는 호출하되
-// 실제 변경(mutation)은 하지 않음) - 미리보기 화면 전용
+// 실제 변경(mutation)은 하지 않음) - 미리보기 화면 전용. detail은 "적용 예시" 화면에 실제
+// AS-IS/TO-BE 값을 보여주기 위한 것으로, 계산 비용이 낮아 항상 함께 반환하되 호출부에서
+// 필요한 예시 1~2건에 대해서만 골라 사용한다.
 async function evaluateModifications(product, modifications, cache) {
   const parts = [];
-  if (modifications.title && modifications.title.trim()) parts.push({ action: "apply", reason: "제목 변경" });
-  if (modifications.description && modifications.description.trim())
+  const detail = {};
+  if (modifications.title && modifications.title.trim()) {
+    parts.push({ action: "apply", reason: "제목 변경" });
+    detail.title = { before: product.title, after: modifications.title };
+  }
+  if (modifications.description && modifications.description.trim()) {
     parts.push({ action: "apply", reason: "설명 변경" });
+    detail.description = { after: modifications.description };
+  }
 
   const tagsPlan = planTags(product, modifications.tags);
-  if (tagsPlan) parts.push(tagsPlan);
+  if (tagsPlan) {
+    parts.push(tagsPlan);
+    if (tagsPlan.action === "apply") detail.tags = { before: product.tags, after: tagsPlan.newTags };
+  }
 
   const mediaOps = modifications.mediaOps || [];
-  if (mediaOps.length) parts.push(...(await previewMediaOps(product, mediaOps, cache)));
+  if (mediaOps.length) {
+    const { results, finalMedia } = await previewMediaOps(product, mediaOps, cache);
+    parts.push(...results);
+    if (results.some((r) => r.action === "apply")) {
+      detail.media = {
+        before: product.media.map((m) => ({ url: m.url, name: mediaDisplayName(m) })),
+        after: finalMedia.map((m) => ({ url: m.url, name: mediaDisplayName(m) })),
+      };
+    }
+  }
 
-  return { summary: summarize(parts) };
+  return { summary: summarize(parts), detail };
 }
 
 // 실제로 상품에 반영 (productUpdate + 미디어 작업들을 순서대로 실행)

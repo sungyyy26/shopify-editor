@@ -110,11 +110,17 @@ async function handlePreviewJob(id) {
   const products = await fetchProductsByIds(productIds);
   const cache = new Map();
   const items = [];
+  const examples = {};
   for (const product of products) {
-    const { summary } = await evaluateModifications(product, job.edits || {}, cache);
+    const { summary, detail } = await evaluateModifications(product, job.edits || {}, cache);
     items.push({ title: product.title, handle: product.handle, action: summary.action, reason: summary.reason });
+    // "적용"/"건너뜀" 각각 처음 만나는 상품 하나씩만 실제 AS-IS/TO-BE 예시로 보관 (전체 항목에
+    // detail을 붙이면 대량 조회 시 응답이 커지므로 예시 1~2건에 대해서만 유지)
+    if (!examples[summary.action] && (summary.action === "apply" || summary.action === "skip")) {
+      examples[summary.action] = { title: product.title, handle: product.handle, reason: summary.reason, detail };
+    }
   }
-  const preview = { items, computedAt: new Date().toISOString() };
+  const preview = { items, examples, computedAt: new Date().toISOString() };
   return jobStore.update(id, { preview });
 }
 

@@ -304,7 +304,7 @@ document.getElementById("step1NextBtn").addEventListener("click", () => setStep(
 // 미디어는 한 번에 여러 작업(추가/교체/삭제/이동)을 순서대로 큐에 담아 적용할 수 있다.
 // mediaOpDraft는 저장 전 편집 중인 행들의 상태(정보/순서/이동할 위치/방식)를 담는다.
 let mediaOpDraft = [];
-function newMediaOpRow() { return { infoList: [], newInfo: "", order: "", moveTo: "", mode: null }; }
+function newMediaOpRow() { return { infoList: [], newInfo: "", order: "", moveTo: "", mode: null, replaceBy: "order" }; }
 
 function mediaOpRowTpl(row, idx) {
   return '<div class="media-row" data-idx="' + idx + '">'
@@ -320,14 +320,18 @@ function mediaOpRowTpl(row, idx) {
     + '<label class="field"><span class="lbl">순서</span><input type="text" inputmode="numeric" id="e-m-order-' + idx + '" placeholder="예: 2"></label>'
     + '<label class="field"><span class="lbl">이동할 위치</span><input type="text" inputmode="numeric" id="e-m-moveto-' + idx + '" placeholder="예: 1" disabled></label>'
     + "</div>"
-    + '<label class="field" style="position:relative;"><span class="lbl">변경할 이미지 (교체(제목 기준) 전용)</span><input type="text" id="e-m-newinfo-' + idx + '" placeholder="예: VIS.jpg" autocomplete="off" disabled><div class="ac-list" id="e-m-newinfo-ac-' + idx + '" hidden></div></label>'
-    + '<p class="panel-hint" style="margin:-4px 0 0;">정보는 이동 모드에서 사용하지 않으며, Enter를 눌러 여러 개를 추가할 수 있습니다 (같은 이미지가 여러 제목/파일명으로 등록된 경우 대비, 그 중 하나라도 일치하면 매칭). 삭제 모드에서 순서를 비워두면 위치와 무관하게 정보와 일치하는 이미지를 찾습니다. 교체(제목 기준) 모드는 순서 없이 "정보"에 입력한 제목을 상품 어디서든 찾아 "변경할 이미지"로 바꿉니다 (위치 유지).</p>'
+    + '<label class="field" style="position:relative;"><span class="lbl">변경할 이미지 (교체 전용)</span><input type="text" id="e-m-newinfo-' + idx + '" placeholder="예: VIS.jpg" autocomplete="off" disabled><div class="ac-list" id="e-m-newinfo-ac-' + idx + '" hidden></div></label>'
+    + '<p class="panel-hint" style="margin:-4px 0 0;">정보는 이동 모드에서 사용하지 않으며, Enter를 눌러 여러 개를 추가할 수 있습니다 (같은 이미지가 여러 제목/파일명으로 등록된 경우 대비, 그 중 하나라도 일치하면 매칭). 삭제 모드에서 순서를 비워두면 위치와 무관하게 정보와 일치하는 이미지를 찾습니다.</p>'
     + '<div class="field"><span class="lbl">방식</span><div class="modewrap" id="editModeWrap-' + idx + '">'
     + '<label class="mode-box" data-val="insert"><input type="checkbox">추가 — 지정 순서에 끼워 넣고 이후 밀기</label>'
-    + '<label class="mode-box" data-val="overwrite"><input type="checkbox">교체 — 지정 순서 이미지만 바꾸기</label>'
+    + '<label class="mode-box" data-val="overwrite"><input type="checkbox">교체 — 이미지를 다른 이미지로 바꾸기</label>'
     + '<label class="mode-box" data-val="delete"><input type="checkbox">삭제 — 지정 순서(또는 일치하는) 이미지 제거</label>'
     + '<label class="mode-box" data-val="move"><input type="checkbox">이동 — 새 이미지 없이 "순서" 위치를 "이동할 위치"로 옮기기</label>'
-    + '<label class="mode-box" data-val="titleReplace"><input type="checkbox">교체(제목 기준) — 위치 무관하게 찾아서 교체</label>'
+    + "</div>"
+    + '<div class="replace-by-row" id="e-m-replaceby-' + idx + '" hidden>'
+    + '<span class="lbl">교체 기준</span>'
+    + '<button type="button" class="seg-btn" data-val="order">순서 (지정한 순서만 교체)</button>'
+    + '<button type="button" class="seg-btn" data-val="title">제목 (위치 무관하게 찾아서 교체)</button>'
     + "</div></div></div>";
 }
 
@@ -404,15 +408,28 @@ function wireMediaOpsContainer() {
     });
     newInfoEl.addEventListener("input", () => { row.newInfo = newInfoEl.value; });
 
+    const replaceByRow = document.getElementById("e-m-replaceby-" + idx);
+    const segBtns = [...replaceByRow.querySelectorAll(".seg-btn")];
+
     function applyModeDisabled() {
+      const isTitleBased = row.mode === "overwrite" && row.replaceBy === "title";
+      replaceByRow.hidden = row.mode !== "overwrite";
       moveToEl.disabled = row.mode !== "move";
-      newInfoEl.disabled = row.mode !== "titleReplace";
+      newInfoEl.disabled = !isTitleBased;
       infoEl.disabled = row.mode === "move";
-      orderEl.disabled = row.mode === "titleReplace";
+      orderEl.disabled = isTitleBased;
       if (moveToEl.disabled) moveToEl.value = "";
       if (newInfoEl.disabled) { newInfoEl.value = ""; row.newInfo = ""; }
       if (orderEl.disabled) { orderEl.value = ""; row.order = ""; }
+      segBtns.forEach((b) => b.classList.toggle("on", b.dataset.val === row.replaceBy));
     }
+
+    segBtns.forEach((b) => {
+      b.addEventListener("click", () => {
+        row.replaceBy = b.dataset.val;
+        applyModeDisabled();
+      });
+    });
 
     const modeBoxes = [...document.getElementById("editModeWrap-" + idx).querySelectorAll(".mode-box")];
     modeBoxes.forEach((box) => {
@@ -624,13 +641,13 @@ function wireEditForm() {
       const infoList = row.infoList.slice();
       const hasAnything = row.mode || infoList.length || row.order || row.moveTo || row.newInfo;
       if (!hasAnything) continue; // 완전히 빈 행은 무시
-      if (!row.mode) { showToast("미디어 작업의 방식(추가/교체/삭제/이동/교체(제목기준))을 선택하세요."); return; }
+      if (!row.mode) { showToast("미디어 작업의 방식(추가/교체/삭제/이동)을 선택하세요."); return; }
       if (row.mode === "move") {
         if (!row.order || !row.moveTo) { showToast("이동 모드에서는 순서와 이동할 위치를 모두 입력하세요."); return; }
         mediaOps.push({ order: row.order, moveTo: row.moveTo, mode: "move" });
-      } else if (row.mode === "titleReplace") {
-        if (!infoList.length) { showToast("교체(제목 기준) 모드에서는 기존 이미지 제목을 1개 이상 입력하세요."); return; }
-        if (!row.newInfo) { showToast("교체(제목 기준) 모드에서는 변경할 이미지를 입력하세요."); return; }
+      } else if (row.mode === "overwrite" && row.replaceBy === "title") {
+        if (!infoList.length) { showToast("교체(제목 기준)에서는 기존 이미지 제목을 1개 이상 입력하세요."); return; }
+        if (!row.newInfo) { showToast("교체(제목 기준)에서는 변경할 이미지를 입력하세요."); return; }
         mediaOps.push({ infoList, newInfo: row.newInfo, mode: "titleReplace" });
       } else {
         if (!infoList.length) { showToast("미디어 작업에 정보(이미지 제목)를 1개 이상 입력하세요."); return; }
@@ -738,15 +755,14 @@ function renderTobe(e, preview) {
     + "</div>";
 
   // 전부 적용이면 적용 예시 1개, 적용/건너뜀이 섞여 있으면 각각 1개씩, 전부 건너뜀이면 건너뜀 예시 1개를 리스트 위에 보여준다.
-  const applyExample = items.find((i) => i.action === "apply");
-  const skipExample = items.find((i) => i.action === "skip");
+  const examples = preview.examples || {};
   let exampleHtml = "";
   if (applyCount && skipCount) {
-    exampleHtml = tobeExampleBlock("적용 예시", applyExample) + tobeExampleBlock("건너뜀 예시", skipExample);
+    exampleHtml = tobeExampleBlock("적용 예시", "apply", examples.apply) + tobeExampleBlock("건너뜀 예시", "skip", examples.skip);
   } else if (applyCount && !skipCount) {
-    exampleHtml = tobeExampleBlock("적용 예시", applyExample);
+    exampleHtml = tobeExampleBlock("적용 예시", "apply", examples.apply);
   } else if (skipCount && !applyCount) {
-    exampleHtml = tobeExampleBlock("건너뜀 예시", skipExample);
+    exampleHtml = tobeExampleBlock("건너뜀 예시", "skip", examples.skip);
   }
   if (exampleHtml) html += '<div class="tobe-examples">' + exampleHtml + "</div>";
 
@@ -765,13 +781,43 @@ function renderTobe(e, preview) {
   return html + "</div>";
 }
 function actionLabel(a) { return { apply: "적용", skip: "건너뜀", error: "오류" }[a] || a; }
-function tobeExampleBlock(label, item) {
+
+function exampleFieldRow(label, html) {
+  return '<div class="tobe-example-row"><span class="tobe-example-flabel">' + esc(label) + '</span><div class="tobe-example-fval">' + html + "</div></div>";
+}
+function exampleThumbStrip(list) {
+  if (!list || !list.length) return '<span class="tobe-nochange">(이미지 없음)</span>';
+  return '<div class="ex-thumbs">'
+    + list.map((m) =>
+        '<div class="ex-thumb-wrap">'
+        + (m.url ? '<img src="' + esc(m.url) + '" class="ex-thumb">' : '<div class="ex-thumb ex-thumb-empty">' + THUMB_SVG + "</div>")
+        + '<span class="ex-thumb-name">' + esc(m.name || "(제목 없음)") + "</span></div>"
+      ).join("")
+    + "</div>";
+}
+function tobeExampleBlock(label, action, item) {
   if (!item) return "";
-  return '<div class="tobe-example item-' + esc(item.action) + '">'
-    + '<span class="tobe-example-label">' + esc(label) + "</span>"
+  const d = item.detail || {};
+  let rows = "";
+  if (d.title) {
+    rows += exampleFieldRow("제목", '<span class="ex-before">' + esc(d.title.before) + '</span><span class="ex-arrow">→</span><span class="ex-after">' + esc(d.title.after) + "</span>");
+  }
+  if (d.tags) {
+    const before = d.tags.before.length ? d.tags.before.join(", ") : "(없음)";
+    const after = d.tags.after.length ? d.tags.after.join(", ") : "(없음)";
+    rows += exampleFieldRow("태그", '<span class="ex-before">' + esc(before) + '</span><span class="ex-arrow">→</span><span class="ex-after">' + esc(after) + "</span>");
+  }
+  if (d.description) {
+    rows += exampleFieldRow("설명", '<span class="ex-after">새 설명 HTML 적용 (' + esc(d.description.after.length) + "자)</span>");
+  }
+  if (d.media) {
+    rows += exampleFieldRow("미디어 (AS-IS)", exampleThumbStrip(d.media.before)) + exampleFieldRow("미디어 (TO-BE)", exampleThumbStrip(d.media.after));
+  }
+  return '<div class="tobe-example item-' + esc(action) + '">'
+    + '<div class="tobe-example-head"><span class="tobe-example-label">' + esc(label) + '</span>'
     + '<span class="tobe-example-title">' + esc(item.title || "") + "</span>"
-    + "<code>" + esc(item.handle || "") + "</code>"
-    + (item.reason ? '<span class="tobe-example-reason">' + esc(item.reason) + "</span>" : "")
+    + "<code>" + esc(item.handle || "") + "</code></div>"
+    + (rows || '<p class="tobe-example-reason">' + esc(item.reason || "") + "</p>")
     + "</div>";
 }
 
@@ -838,7 +884,7 @@ function renderJobs(jobs) {
   document.getElementById("countBadge").textContent = allJobs.length + "건";
   if (!allJobs.length) { list.innerHTML = '<p class="empty">아직 검색한 작업이 없습니다.</p>'; return; }
 
-  const { pageItems, page, totalPages } = paginate(allJobs, jobsPage, 6);
+  const { pageItems, page, totalPages } = paginate(allJobs, jobsPage, 5);
   jobsPage = page;
 
   list.innerHTML = pageItems.map((job) => {
