@@ -569,7 +569,7 @@ function renderStep2() {
   html += '<div class="results-head"><h3>적용할 페이지 선택</h3>'
     + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
     + '<span class="count-badge">' + step2Selected.size + " / " + c.length + "건 선택</span>"
-    + '<button type="button" class="select-all" id="step2SelectPage"' + (pagePicked ? " disabled" : "") + '>현재 페이지 전체 선택</button>'
+    + '<button type="button" class="select-all" id="step2SelectPage">' + (pagePicked ? "현재 페이지 전체 해제" : "현재 페이지 전체 선택") + "</button>"
     + '<button type="button" class="select-all" id="step2SelectAll">' + (allPicked ? "전체 해제" : "전체 선택") + "</button>"
     + "</div></div>"
     + '<p class="panel-hint" style="margin:-4px 0 0;">Ctrl(⌘)+A로 현재 페이지 전체 선택, Shift+클릭으로 범위 선택/해제할 수 있습니다.</p>'
@@ -591,7 +591,9 @@ function renderStep2() {
     renderStep2();
   });
   document.getElementById("step2SelectPage").addEventListener("click", () => {
-    pageItems.forEach((p) => step2Selected.add(p.id));
+    if (pagePicked) pageItems.forEach((p) => step2Selected.delete(p.id));
+    else pageItems.forEach((p) => step2Selected.add(p.id));
+    step2Anchor = null;
     renderStep2();
   });
   el.querySelectorAll(".result-card.selectable").forEach((card) => {
@@ -995,11 +997,11 @@ document.getElementById("clearJobsBtn").addEventListener("click", async () => {
 function jobSummaryLine(job) {
   const f = job.filter || {};
   const parts = [
-    f.title ? "제목:" + f.title : null,
-    f.statuses && f.statuses.length ? "상태:" + f.statuses.join(",") : null,
-    f.tags ? "태그:" + f.tags : null,
-    f.handles && f.handles.length ? "핸들:" + f.handles.join(",") : null,
-    f.template ? "템플릿:" + f.template : null,
+    f.title ? "제목: " + f.title : null,
+    f.statuses && f.statuses.length ? "상태: " + f.statuses.join(", ") : null,
+    f.tags ? "태그: " + f.tags : null,
+    f.handles && f.handles.length ? "핸들: " + f.handles.join(", ") : null,
+    f.template ? "템플릿: " + f.template : null,
   ].filter(Boolean);
   return parts.join(" · ") || "조건 없음";
 }
