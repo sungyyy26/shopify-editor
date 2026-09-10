@@ -312,9 +312,8 @@ function infoLabelFor(mode) {
     || "정보 (등록된 이미지 제목/대체 텍스트로 검색)";
 }
 function orderPlaceholderFor(mode) {
-  if (mode === "insert") return "예: 2 또는 2, 3 (비우면 맨 끝에 추가)";
-  if (mode === "overwrite" || mode === "delete") return "예: 2 또는 2, 3 (비우면 위치 무관하게 찾음)";
-  return "예: 2";
+  if (mode === "move") return "예: 3";
+  return "예: 2 또는 2, 3";
 }
 
 function mediaOpRowTpl(row, idx) {
