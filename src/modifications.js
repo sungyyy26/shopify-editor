@@ -90,10 +90,11 @@ function planTags(product, tagsMod) {
 }
 
 // 실제로 새 미디어를 등록하고(필요하면) 지정 위치로 옮기고(필요하면) 기존 것을 지우는 공통 실행부.
-// addTitles 중 처음으로 실제 파일과 매칭되는 제목을 사용해 등록한다.
-function makeAddMediaExecutor({ addTitles, position, oldId, cache }) {
+// addTitles 중 처음으로 실제 파일과 매칭되는 제목을 사용해 등록한다. presetUrl이 주어지면
+// (예: 방금 업로드해 아직 쇼피파이 파일 라이브러리에서 검색되지 않는 이미지) 검색 없이 그 URL을 그대로 쓴다.
+function makeAddMediaExecutor({ addTitles, position, oldId, cache, presetUrl }) {
   return async (productId) => {
-    const url = await findFileUrlByTitles(addTitles, cache);
+    const url = presetUrl || (await findFileUrlByTitles(addTitles, cache));
     if (!url) throw new Error(`미디어를 쇼피파이에서 찾지 못함: "${addTitles.join(", ")}"`);
     const created = await shopifyGraphQL(PRODUCT_CREATE_MEDIA, {
       productId,
@@ -180,54 +181,78 @@ async function deriveMediaOpPlan(media, op, cache) {
     };
   }
 
-  if (mode === "titleReplace") {
-    if (!infoList.length) return { action: "error", reason: "기존 이미지를 입력해주세요" };
+  // 교체: "정보"는 항상 찾을 기존 이미지, "변경할 이미지"는 항상 새 이미지를 뜻한다.
+  // 순서가 주어지면 그 위치의 이미지가 "정보"와 일치하는지 확인 후 교체(안전장치),
+  // 순서가 없으면 위치와 무관하게 "정보"와 일치하는 이미지를 찾아 교체한다.
+  if (mode === "overwrite") {
+    if (!infoList.length) return { action: "error", reason: "교체할 이미지를 입력해주세요" };
     if (!newInfo) return { action: "error", reason: "변경할 이미지를 입력해주세요" };
-    const idx = media.findIndex((m) => infoList.includes(mediaDisplayName(m)));
-    if (idx === -1) return { action: "skip", reason: `교체할 이미지를 찾지 못함: "${infoList.join(", ")}"` };
+    let idx;
+    let positionLabel;
+    if (op.order) {
+      const position = parseInt(op.order, 10);
+      const atPosition = media[position - 1];
+      if (!atPosition) return { action: "skip", reason: `${position}번 위치에 이미지가 없음` };
+      if (!infoList.includes(mediaDisplayName(atPosition)))
+        return { action: "skip", reason: `${position}번 위치의 이미지가 다름 (실제: "${mediaDisplayName(atPosition) || "제목 없음"}") - 안전을 위해 건너뜀` };
+      idx = position - 1;
+      positionLabel = `${position}번`;
+    } else {
+      idx = media.findIndex((m) => infoList.includes(mediaDisplayName(m)));
+      if (idx === -1) return { action: "skip", reason: `교체할 이미지를 찾지 못함: "${infoList.join(", ")}"` };
+      positionLabel = `${idx + 1}번, 위치 무관하게 찾음`;
+    }
     if (media.some((m) => mediaDisplayName(m) === newInfo))
       return { action: "skip", reason: `이미 등록된 이미지 (건너뜀): "${newInfo}"` };
-    const newUrl = await findFileUrlByTitles([newInfo], cache);
+    const newUrl = op.newUrl || (await findFileUrlByTitles([newInfo], cache));
     if (!newUrl) return { action: "error", reason: `미디어를 쇼피파이에서 찾지 못함: "${newInfo}"` };
     const position = idx + 1;
     return {
       action: "apply",
-      reason: `이미지 교체: "${infoList.join(", ")}" → "${newInfo}" (${position}번, 위치 무관하게 찾음)`,
+      reason: `이미지 교체: "${infoList.join(", ")}" → "${newInfo}" (${positionLabel})`,
       simulate: (arr) => {
         const copy = arr.slice();
         copy[idx] = { id: "__pending__", alt: newInfo, url: newUrl };
         return copy;
       },
-      execute: makeAddMediaExecutor({ addTitles: [newInfo], position, oldId: media[idx].id, cache }),
+      execute: makeAddMediaExecutor({ addTitles: [newInfo], position, oldId: media[idx].id, cache, presetUrl: op.newUrl }),
     };
   }
 
-  // 삽입/교체(순서 기준): 이미 같은 이미지가 등록되어 있으면 위치와 무관하게 건너뜀
-  if (!infoList.length) return { action: "error", reason: "정보(이미지 제목)를 입력해주세요" };
+  // 추가: 이미 같은 이미지가 등록되어 있으면 위치와 무관하게 건너뜀. 순서를 비워두면 맨 끝에 추가.
+  if (!infoList.length) return { action: "error", reason: "등록할 이미지를 입력해주세요" };
   if (media.some((m) => infoList.includes(mediaDisplayName(m))))
     return { action: "skip", reason: `이미 등록된 이미지 (건너뜀): "${infoList.join(", ")}"` };
 
-  const url = await findFileUrlByTitles(infoList, cache);
+  const url = op.url || (await findFileUrlByTitles(infoList, cache));
   if (!url) return { action: "error", reason: `미디어를 쇼피파이에서 찾지 못함: "${infoList.join(", ")}"` };
 
-  const position = Math.max(1, Math.min(media.length + (mode === "insert" ? 1 : 0), parseInt(op.order, 10) || 1));
+  const position = op.order ? Math.max(1, Math.min(media.length + 1, parseInt(op.order, 10) || media.length + 1)) : media.length + 1;
   return {
     action: "apply",
-    reason: `이미지 ${mode === "insert" ? "삽입" : "교체"}: "${infoList.join(", ")}" (${position}번)`,
+    reason: `이미지 삽입: "${infoList.join(", ")}" (${position}번${op.order ? "" : ", 맨 끝"})`,
     simulate: (arr) => {
       const copy = arr.slice();
-      const placeholder = { id: "__pending__", alt: infoList[0], url };
-      if (mode === "insert") copy.splice(position - 1, 0, placeholder);
-      else copy[position - 1] = placeholder;
+      copy.splice(position - 1, 0, { id: "__pending__", alt: infoList[0], url });
       return copy;
     },
-    execute: makeAddMediaExecutor({
-      addTitles: infoList,
-      position,
-      oldId: mode === "overwrite" ? (media[position - 1] || {}).id || null : null,
-      cache,
-    }),
+    execute: makeAddMediaExecutor({ addTitles: infoList, position, oldId: null, cache, presetUrl: op.url }),
   };
+}
+
+// 프론트엔드는 하나의 미디어 작업에 여러 (정보/순서[/변경할 이미지]) 쌍을 배치로 담아 보낼 수 있다
+// ({ mode, items: [{info, order, newInfo}, ...] }). deriveMediaOpPlan은 항상 단일 항목 기준으로
+// 계산하므로, 배치 작업을 병렬 배열 순서대로 여러 개의 단일 작업으로 펼쳐서 순차 실행한다.
+function expandMediaOp(op) {
+  if (!op || op.mode === "move") return [op];
+  return (op.items || []).map((item) => ({
+    mode: op.mode,
+    infoList: item.info ? [item.info] : [],
+    order: item.order || null,
+    newInfo: item.newInfo || "",
+    url: item.url || null,
+    newUrl: item.newUrl || null,
+  }));
 }
 
 // 여러 미디어 작업을 입력한 순서대로 미리 계산 (실제 mutation 없음). 각 작업은 이전
@@ -236,7 +261,7 @@ async function deriveMediaOpPlan(media, op, cache) {
 async function previewMediaOps(product, mediaOps, cache) {
   let media = product.media.slice();
   const results = [];
-  for (const op of mediaOps) {
+  for (const op of mediaOps.flatMap(expandMediaOp)) {
     const plan = await deriveMediaOpPlan(media, op, cache);
     if (!plan) continue;
     results.push({ action: plan.action, reason: plan.reason });
@@ -250,7 +275,7 @@ async function previewMediaOps(product, mediaOps, cache) {
 async function applyMediaOps(product, mediaOps, cache) {
   let media = product.media.slice();
   const results = [];
-  for (const op of mediaOps) {
+  for (const op of mediaOps.flatMap(expandMediaOp)) {
     const plan = await deriveMediaOpPlan(media, op, cache);
     if (!plan) continue;
     if (plan.action !== "apply") {

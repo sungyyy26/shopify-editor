@@ -304,7 +304,18 @@ document.getElementById("step1NextBtn").addEventListener("click", () => setStep(
 // 미디어는 한 번에 여러 작업(추가/교체/삭제/이동)을 순서대로 큐에 담아 적용할 수 있다.
 // mediaOpDraft는 저장 전 편집 중인 행들의 상태(정보/순서/이동할 위치/방식)를 담는다.
 let mediaOpDraft = [];
-function newMediaOpRow() { return { infoList: [], newInfo: "", order: "", moveTo: "", mode: null, replaceBy: "order" }; }
+function newMediaOpRow() { return { infoList: [], newInfoList: [], order: "", moveTo: "", mode: null, uploadedUrls: {} }; }
+
+// 방식별로 "정보" 필드가 뜻하는 대상이 다르므로 헷갈리지 않게 라벨을 동적으로 바꾼다.
+function infoLabelFor(mode) {
+  return { insert: "등록할 이미지", overwrite: "교체할 이미지 (기존)", delete: "삭제할 이미지" }[mode]
+    || "정보 (등록된 이미지 제목/대체 텍스트로 검색)";
+}
+function orderPlaceholderFor(mode) {
+  if (mode === "insert") return "예: 2 또는 2, 3 (비우면 맨 끝에 추가)";
+  if (mode === "overwrite" || mode === "delete") return "예: 2 또는 2, 3 (비우면 위치 무관하게 찾음)";
+  return "예: 2";
+}
 
 function mediaOpRowTpl(row, idx) {
   return '<div class="media-row" data-idx="' + idx + '">'
@@ -313,25 +324,27 @@ function mediaOpRowTpl(row, idx) {
     + (mediaOpDraft.length > 1 ? '<button type="button" class="btn-secondary media-op-remove" data-idx="' + idx + '" style="padding:4px 12px;font-size:12px;">✕ 제거</button>' : "")
     + "</div>"
     + '<div class="media-grid">'
-    + '<label class="field" style="position:relative;"><span class="lbl">정보 (등록된 이미지 제목/대체 텍스트로 검색, 여러 개 가능)</span>'
+    + '<label class="field" style="position:relative;"><span class="lbl" id="e-m-info-lbl-' + idx + '">' + esc(infoLabelFor(row.mode)) + "</span>"
     + '<div class="chip-input-box" id="e-m-info-box-' + idx + '"><div class="chip-tags" id="e-m-info-chips-' + idx + '"></div>'
-    + '<input type="text" id="e-m-info-' + idx + '" placeholder="예: reseller_thumbnail (Enter로 추가)" autocomplete="off"></div>'
+    + '<input type="text" id="e-m-info-' + idx + '" placeholder="예: reseller_thumbnail (Enter로 추가)" autocomplete="off">'
+    + '<button type="button" class="chip-upload-btn" id="e-m-info-upload-' + idx + '" hidden title="파일 업로드">📁 업로드</button>'
+    + '<input type="file" accept="image/*" id="e-m-info-file-' + idx + '" hidden></div>'
     + '<div class="ac-list" id="e-m-info-ac-' + idx + '" hidden></div></label>'
-    + '<label class="field"><span class="lbl">순서</span><input type="text" inputmode="numeric" id="e-m-order-' + idx + '" placeholder="예: 2"></label>'
+    + '<label class="field"><span class="lbl">순서</span><input type="text" inputmode="numeric" id="e-m-order-' + idx + '" placeholder="' + esc(orderPlaceholderFor(row.mode)) + '"></label>'
     + '<label class="field"><span class="lbl">이동할 위치</span><input type="text" inputmode="numeric" id="e-m-moveto-' + idx + '" placeholder="예: 1" disabled></label>'
     + "</div>"
-    + '<label class="field" style="position:relative;"><span class="lbl">변경할 이미지 (교체 전용)</span><input type="text" id="e-m-newinfo-' + idx + '" placeholder="예: VIS.jpg" autocomplete="off" disabled><div class="ac-list" id="e-m-newinfo-ac-' + idx + '" hidden></div></label>'
-    + '<p class="panel-hint" style="margin:-4px 0 0;">정보는 이동 모드에서 사용하지 않으며, Enter를 눌러 여러 개를 추가할 수 있습니다 (같은 이미지가 여러 제목/파일명으로 등록된 경우 대비, 그 중 하나라도 일치하면 매칭). 삭제 모드에서 순서를 비워두면 위치와 무관하게 정보와 일치하는 이미지를 찾습니다.</p>'
+    + '<label class="field" style="position:relative;"><span class="lbl">변경할 이미지 (새 이미지, "정보"와 같은 개수)</span>'
+    + '<div class="chip-input-box" id="e-m-newinfo-box-' + idx + '"><div class="chip-tags" id="e-m-newinfo-chips-' + idx + '"></div>'
+    + '<input type="text" id="e-m-newinfo-' + idx + '" placeholder="예: VIS.jpg (Enter로 추가)" autocomplete="off">'
+    + '<button type="button" class="chip-upload-btn" id="e-m-newinfo-upload-' + idx + '" hidden title="파일 업로드">📁 업로드</button>'
+    + '<input type="file" accept="image/*" id="e-m-newinfo-file-' + idx + '" hidden></div>'
+    + '<div class="ac-list" id="e-m-newinfo-ac-' + idx + '" hidden></div></label>'
+    + '<p class="panel-hint" style="margin:-4px 0 0;">"정보"(그리고 교체의 "변경할 이미지")는 Enter로 여러 개 추가할 수 있습니다. 2개 이상이면 순서도 쉼표로 같은 개수만큼 입력해 순서대로 1:1로 짝지어 각각 다른 이미지로 한 번에 처리합니다 (예: 정보 "VIS.jpg, TEST2.jpg" + 순서 "2, 3" → VIS.jpg는 2번, TEST2.jpg는 3번). 순서를 비워두면 추가는 맨 끝에, 교체/삭제는 위치와 무관하게 찾아서 처리합니다. 이동 모드에서는 정보를 사용하지 않습니다.</p>'
     + '<div class="field"><span class="lbl">방식</span><div class="modewrap" id="editModeWrap-' + idx + '">'
     + '<label class="mode-box" data-val="insert"><input type="checkbox">추가 — 지정 순서에 끼워 넣고 이후 밀기</label>'
     + '<label class="mode-box" data-val="overwrite"><input type="checkbox">교체 — 이미지를 다른 이미지로 바꾸기</label>'
     + '<label class="mode-box" data-val="delete"><input type="checkbox">삭제 — 지정 순서(또는 일치하는) 이미지 제거</label>'
     + '<label class="mode-box" data-val="move"><input type="checkbox">이동 — 새 이미지 없이 "순서" 위치를 "이동할 위치"로 옮기기</label>'
-    + "</div>"
-    + '<div class="replace-by-row" id="e-m-replaceby-' + idx + '" hidden>'
-    + '<span class="lbl">교체 기준</span>'
-    + '<button type="button" class="seg-btn" data-val="order">순서 (지정한 순서만 교체)</button>'
-    + '<button type="button" class="seg-btn" data-val="title">제목 (위치 무관하게 찾아서 교체)</button>'
     + "</div></div></div>";
 }
 
@@ -343,27 +356,27 @@ function renderMediaOpsContainer() {
   wireMediaOpsContainer();
 }
 
-function renderInfoChips(idx) {
+function renderChips(idx, field, elId) {
   const row = mediaOpDraft[idx];
-  const box = document.getElementById("e-m-info-chips-" + idx);
+  const box = document.getElementById(elId);
   if (!box || !row) return;
-  box.innerHTML = row.infoList
-    .map((v, i) => '<span class="info-chip">' + esc(v) + '<button type="button" class="chip-x" data-idx="' + idx + '" data-i="' + i + '">✕</button></span>')
+  box.innerHTML = row[field]
+    .map((v, i) => '<span class="info-chip">' + esc(v) + '<button type="button" class="chip-x" data-i="' + i + '">✕</button></span>')
     .join("");
   box.querySelectorAll(".chip-x").forEach((btn) => {
     btn.addEventListener("click", () => {
-      mediaOpDraft[idx].infoList.splice(Number(btn.dataset.i), 1);
-      renderInfoChips(idx);
+      row[field].splice(Number(btn.dataset.i), 1);
+      renderChips(idx, field, elId);
     });
   });
 }
-function addInfoChip(idx, value) {
+function addChip(idx, field, elId, value) {
   const v = (value || "").trim();
   if (!v) return;
   const row = mediaOpDraft[idx];
   if (!row) return;
-  if (!row.infoList.includes(v)) row.infoList.push(v);
-  renderInfoChips(idx);
+  if (!row[field].includes(v)) row[field].push(v);
+  renderChips(idx, field, elId);
 }
 
 function syncMediaOpDraftFromDom() {
@@ -372,11 +385,37 @@ function syncMediaOpDraftFromDom() {
     const orderEl = document.getElementById("e-m-order-" + idx);
     const moveToEl = document.getElementById("e-m-moveto-" + idx);
     const newInfoEl = document.getElementById("e-m-newinfo-" + idx);
-    if (infoEl && infoEl.value.trim()) { addInfoChip(idx, infoEl.value); infoEl.value = ""; }
+    if (infoEl && infoEl.value.trim()) { addChip(idx, "infoList", "e-m-info-chips-" + idx, infoEl.value); infoEl.value = ""; }
+    if (newInfoEl && newInfoEl.value.trim()) { addChip(idx, "newInfoList", "e-m-newinfo-chips-" + idx, newInfoEl.value); newInfoEl.value = ""; }
     if (orderEl) row.order = orderEl.value;
     if (moveToEl) row.moveTo = moveToEl.value;
-    if (newInfoEl) row.newInfo = newInfoEl.value.trim();
   });
+}
+
+// 업로드한 파일 바이트를 서버로 보내 쇼피파이에 스테이징하고, 반환된 제목을 해당 칩 입력에 추가한다.
+async function uploadMediaFile(idx, field, elId, file) {
+  const btnId = field === "infoList" ? "e-m-info-upload-" + idx : "e-m-newinfo-upload-" + idx;
+  const btn = document.getElementById(btnId);
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "업로드 중...";
+  try {
+    const res = await fetch("/api/media/upload?filename=" + encodeURIComponent(file.name), {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "업로드 실패");
+    mediaOpDraft[idx].uploadedUrls[data.displayName] = data.url;
+    addChip(idx, field, elId, data.displayName);
+    showToast('"' + data.displayName + '" 업로드 완료. 되도록 바로 이어서 저장·적용해주세요.');
+  } catch (err) {
+    showToast("업로드 실패: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
 }
 
 function wireMediaOpsContainer() {
@@ -385,51 +424,64 @@ function wireMediaOpsContainer() {
     const orderEl = document.getElementById("e-m-order-" + idx);
     const moveToEl = document.getElementById("e-m-moveto-" + idx);
     const newInfoEl = document.getElementById("e-m-newinfo-" + idx);
+    const infoLbl = document.getElementById("e-m-info-lbl-" + idx);
+    const infoUploadBtn = document.getElementById("e-m-info-upload-" + idx);
+    const infoFileEl = document.getElementById("e-m-info-file-" + idx);
+    const newInfoUploadBtn = document.getElementById("e-m-newinfo-upload-" + idx);
+    const newInfoFileEl = document.getElementById("e-m-newinfo-file-" + idx);
+    const newInfoBox = document.getElementById("e-m-newinfo-box-" + idx);
     orderEl.value = row.order || "";
     moveToEl.value = row.moveTo || "";
-    newInfoEl.value = row.newInfo || "";
-    renderInfoChips(idx);
+    renderChips(idx, "infoList", "e-m-info-chips-" + idx);
+    renderChips(idx, "newInfoList", "e-m-newinfo-chips-" + idx);
 
     wireMediaAutocomplete(infoEl, document.getElementById("e-m-info-ac-" + idx), (name) => {
-      addInfoChip(idx, name);
+      addChip(idx, "infoList", "e-m-info-chips-" + idx, name);
       infoEl.value = "";
     });
     infoEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        addInfoChip(idx, infoEl.value);
+        addChip(idx, "infoList", "e-m-info-chips-" + idx, infoEl.value);
         infoEl.value = "";
       }
     });
+    infoUploadBtn.addEventListener("click", () => infoFileEl.click());
+    infoFileEl.addEventListener("change", () => {
+      if (infoFileEl.files[0]) uploadMediaFile(idx, "infoList", "e-m-info-chips-" + idx, infoFileEl.files[0]);
+      infoFileEl.value = "";
+    });
 
     wireMediaAutocomplete(newInfoEl, document.getElementById("e-m-newinfo-ac-" + idx), (name) => {
-      newInfoEl.value = name;
-      row.newInfo = name;
+      addChip(idx, "newInfoList", "e-m-newinfo-chips-" + idx, name);
+      newInfoEl.value = "";
     });
-    newInfoEl.addEventListener("input", () => { row.newInfo = newInfoEl.value; });
-
-    const replaceByRow = document.getElementById("e-m-replaceby-" + idx);
-    const segBtns = [...replaceByRow.querySelectorAll(".seg-btn")];
+    newInfoEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addChip(idx, "newInfoList", "e-m-newinfo-chips-" + idx, newInfoEl.value);
+        newInfoEl.value = "";
+      }
+    });
+    newInfoUploadBtn.addEventListener("click", () => newInfoFileEl.click());
+    newInfoFileEl.addEventListener("change", () => {
+      if (newInfoFileEl.files[0]) uploadMediaFile(idx, "newInfoList", "e-m-newinfo-chips-" + idx, newInfoFileEl.files[0]);
+      newInfoFileEl.value = "";
+    });
 
     function applyModeDisabled() {
-      const isTitleBased = row.mode === "overwrite" && row.replaceBy === "title";
-      replaceByRow.hidden = row.mode !== "overwrite";
+      const isOverwrite = row.mode === "overwrite";
       moveToEl.disabled = row.mode !== "move";
-      newInfoEl.disabled = !isTitleBased;
       infoEl.disabled = row.mode === "move";
-      orderEl.disabled = isTitleBased;
+      newInfoBox.classList.toggle("disabled", !isOverwrite);
+      newInfoEl.disabled = !isOverwrite;
+      infoLbl.textContent = infoLabelFor(row.mode);
+      orderEl.placeholder = orderPlaceholderFor(row.mode);
+      infoUploadBtn.hidden = row.mode !== "insert";
+      newInfoUploadBtn.hidden = !isOverwrite;
       if (moveToEl.disabled) moveToEl.value = "";
-      if (newInfoEl.disabled) { newInfoEl.value = ""; row.newInfo = ""; }
-      if (orderEl.disabled) { orderEl.value = ""; row.order = ""; }
-      segBtns.forEach((b) => b.classList.toggle("on", b.dataset.val === row.replaceBy));
+      if (!isOverwrite) { row.newInfoList = []; renderChips(idx, "newInfoList", "e-m-newinfo-chips-" + idx); }
     }
-
-    segBtns.forEach((b) => {
-      b.addEventListener("click", () => {
-        row.replaceBy = b.dataset.val;
-        applyModeDisabled();
-      });
-    });
 
     const modeBoxes = [...document.getElementById("editModeWrap-" + idx).querySelectorAll(".mode-box")];
     modeBoxes.forEach((box) => {
@@ -564,14 +616,18 @@ function renderStep2() {
   document.getElementById("step2Confirm").addEventListener("click", confirmStep2);
 }
 
-function modeLabelMedia(m) { return { insert: "추가", overwrite: "교체", delete: "삭제", move: "이동", titleReplace: "교체(제목기준)" }[m] || "-"; }
+function modeLabelMedia(m) { return { insert: "추가", overwrite: "교체", delete: "삭제", move: "이동" }[m] || "-"; }
 function mediaOpsSummaryText(ops) {
   return ops.map((op, i) => (i + 1) + ". " + mediaSummaryText(op)).join(" / ");
 }
-function mediaSummaryText(m) {
-  if (m.mode === "move") return (m.order || "-") + "번 → " + (m.moveTo || "-") + "번 · 이동";
-  if (m.mode === "titleReplace") return '"' + (m.infoList || []).join(", ") + '" → "' + (m.newInfo || "") + '" · 교체(제목기준)';
-  return '"' + (m.infoList || []).join(", ") + '" · ' + (m.order || "-") + "번 · " + modeLabelMedia(m.mode);
+function mediaSummaryText(op) {
+  if (op.mode === "move") return (op.order || "-") + "번 → " + (op.moveTo || "-") + "번 · 이동";
+  const parts = (op.items || []).map((it) => {
+    if (op.mode === "overwrite") return `"${it.info}" → "${it.newInfo}"` + (it.order ? ` (${it.order}번)` : " (위치 무관)");
+    if (op.mode === "insert") return `"${it.info}"` + (it.order ? ` (${it.order}번)` : " (맨 끝)");
+    return `"${it.info}"` + (it.order ? ` (${it.order}번)` : " (위치 무관)");
+  });
+  return parts.join(", ") + " · " + modeLabelMedia(op.mode);
 }
 function modeLabelTags(m) { return { add: "추가", replace: "교체", remove: "삭제" }[m] || "-"; }
 
@@ -639,19 +695,52 @@ function wireEditForm() {
     const mediaOps = [];
     for (const row of mediaOpDraft) {
       const infoList = row.infoList.slice();
-      const hasAnything = row.mode || infoList.length || row.order || row.moveTo || row.newInfo;
+      const newInfoList = row.newInfoList.slice();
+      const hasAnything = row.mode || infoList.length || row.order || row.moveTo || newInfoList.length;
       if (!hasAnything) continue; // 완전히 빈 행은 무시
       if (!row.mode) { showToast("미디어 작업의 방식(추가/교체/삭제/이동)을 선택하세요."); return; }
+
       if (row.mode === "move") {
         if (!row.order || !row.moveTo) { showToast("이동 모드에서는 순서와 이동할 위치를 모두 입력하세요."); return; }
-        mediaOps.push({ order: row.order, moveTo: row.moveTo, mode: "move" });
-      } else if (row.mode === "overwrite" && row.replaceBy === "title") {
-        if (!infoList.length) { showToast("교체(제목 기준)에서는 기존 이미지 제목을 1개 이상 입력하세요."); return; }
-        if (!row.newInfo) { showToast("교체(제목 기준)에서는 변경할 이미지를 입력하세요."); return; }
-        mediaOps.push({ infoList, newInfo: row.newInfo, mode: "titleReplace" });
+        mediaOps.push({ mode: "move", order: row.order, moveTo: row.moveTo });
+        continue;
+      }
+
+      if (!infoList.length) { showToast(infoLabelFor(row.mode) + "를 1개 이상 입력하세요."); return; }
+
+      // 순서: 비워두면 전부 미지정 처리, 입력하면 정보 개수와 정확히 같아야 순서대로 1:1 매칭
+      const orderRaw = (row.order || "").trim();
+      let orders;
+      if (!orderRaw) {
+        orders = infoList.map(() => null);
       } else {
-        if (!infoList.length) { showToast("미디어 작업에 정보(이미지 제목)를 1개 이상 입력하세요."); return; }
-        mediaOps.push({ infoList, order: row.order || null, mode: row.mode });
+        orders = orderRaw.split(",").map((s) => s.trim()).filter(Boolean);
+        if (orders.length !== infoList.length) {
+          showToast(`순서는 비워두거나 정보 개수(${infoList.length}개)와 동일하게 쉼표로 입력하세요.`);
+          return;
+        }
+      }
+
+      if (row.mode === "overwrite") {
+        if (newInfoList.length !== infoList.length) {
+          showToast(`변경할 이미지는 정보 개수(${infoList.length}개)와 동일하게 입력하세요.`);
+          return;
+        }
+        mediaOps.push({
+          mode: "overwrite",
+          items: infoList.map((info, i) => ({
+            info,
+            order: orders[i] || null,
+            newInfo: newInfoList[i],
+            url: row.uploadedUrls[info] || undefined,
+            newUrl: row.uploadedUrls[newInfoList[i]] || undefined,
+          })),
+        });
+      } else {
+        mediaOps.push({
+          mode: row.mode,
+          items: infoList.map((info, i) => ({ info, order: orders[i] || null, url: row.uploadedUrls[info] || undefined })),
+        });
       }
     }
     if (mediaOps.length) edits.mediaOps = mediaOps;

@@ -81,11 +81,12 @@ const FIND_FILE_BY_TITLE = `
 `;
 
 // 쇼피파이의 파일 검색(query)은 파일명만 검색하고 대체 텍스트(alt)는 검색하지 않는다
-// (실제 스토어 데이터로 확인됨). alt로도 찾을 수 있도록 최근 등록된 이미지를 가져와
-// 서버에서 alt 기준으로 직접 필터링하기 위한 쿼리.
+// (실제 스토어 데이터로 확인됨). alt로도 찾을 수 있도록 최근 등록된 이미지 최대 250개를
+// 가져와 서버에서 alt 기준으로 직접 필터링하기 위한 쿼리 (그보다 오래된 파일은 대체
+// 텍스트만으로는 찾을 수 없고 파일명으로는 항상 찾을 수 있음).
 const RECENT_IMAGE_FILES = `
   query RecentImageFiles {
-    files(first: 50, sortKey: CREATED_AT, reverse: true, query: "media_type:IMAGE") {
+    files(first: 250, sortKey: CREATED_AT, reverse: true, query: "media_type:IMAGE") {
       edges {
         node {
           id
@@ -93,6 +94,21 @@ const RECENT_IMAGE_FILES = `
           ... on MediaImage { image { url } }
         }
       }
+    }
+  }
+`;
+
+// 직접 이미지 파일을 업로드할 때 쓰는 스테이징 업로드: 업로드 대상 URL을 발급받은 뒤
+// 그 URL로 실제 파일 바이트를 올리고, 반환된 resourceUrl을 이미지 등록에 사용한다.
+const STAGED_UPLOADS_CREATE = `
+  mutation StagedUploadsCreate($input: [StagedUploadInput!]!) {
+    stagedUploadsCreate(input: $input) {
+      stagedTargets {
+        url
+        resourceUrl
+        parameters { name value }
+      }
+      userErrors { field message }
     }
   }
 `;
@@ -130,6 +146,7 @@ module.exports = {
   PRODUCT_UPDATE,
   FIND_FILE_BY_TITLE,
   RECENT_IMAGE_FILES,
+  STAGED_UPLOADS_CREATE,
   PRODUCT_CREATE_MEDIA,
   PRODUCT_REORDER_MEDIA,
   PRODUCT_DELETE_MEDIA,

@@ -7,7 +7,7 @@ loadEnv();
 
 const { buildAuthorizeUrl, verifyHmac, exchangeCodeForToken } = require("./src/oauth");
 const { shopifyGraphQL } = require("./src/shopify");
-const { buildProductSearchQuery, PRODUCT_SEARCH, PRODUCTS_BY_IDS } = require("./src/queries");
+const { buildProductSearchQuery, PRODUCT_SEARCH, PRODUCTS_BY_IDS, STAGED_UPLOADS_CREATE } = require("./src/queries");
 const { evaluateModifications, applyModifications, searchFiles } = require("./src/modifications");
 const jobStore = require("./src/jobStore");
 const presetStore = require("./src/presetStore");
@@ -184,6 +184,45 @@ function readJsonBody(req) {
   });
 }
 
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+// 파일을 직접 업로드해서 "정보"/"변경할 이미지"에 바로 등록할 수 있게 하는 기능.
+// 쇼피파이 스테이징 업로드로 업로드 대상 URL을 받아 그 URL로 파일 바이트를 올린 뒤,
+// 반환된 resourceUrl을 실제 미디어 등록(originalSource)에 그대로 쓸 수 있게 반환한다.
+// 업로드만으로는 아직 쇼피파이 파일 라이브러리에서 검색되지 않으므로(상품에 실제로
+// 등록되어야 파일로 잡힘), 이 resourceUrl은 되도록 빨리 저장·적용해서 사용해야 한다.
+async function handleMediaUpload(req, filename) {
+  if (!filename || !filename.trim()) throw new Error("파일명이 필요합니다");
+  const buffer = await readRawBody(req);
+  if (!buffer.length) throw new Error("빈 파일입니다");
+  const mimeType = req.headers["content-type"] || "application/octet-stream";
+  const staged = await shopifyGraphQL(STAGED_UPLOADS_CREATE, {
+    input: [{ resource: "IMAGE", filename, mimeType, httpMethod: "POST" }],
+  });
+  if (staged.stagedUploadsCreate.userErrors.length)
+    throw new Error(staged.stagedUploadsCreate.userErrors.map((e) => e.message).join(", "));
+  const target = staged.stagedUploadsCreate.stagedTargets[0];
+
+  const form = new FormData();
+  for (const p of target.parameters) form.append(p.name, p.value);
+  form.append("file", new Blob([buffer], { type: mimeType }), filename);
+  const uploadRes = await fetch(target.url, { method: "POST", body: form });
+  if (!uploadRes.ok) {
+    const text = await uploadRes.text().catch(() => "");
+    throw new Error(`업로드 실패 (${uploadRes.status}): ${text.slice(0, 300)}`);
+  }
+
+  const displayName = filename.replace(/\.[a-zA-Z0-9]+$/, "");
+  return { url: target.resourceUrl, displayName };
+}
+
 function sendJson(res, status, data) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(data));
@@ -276,6 +315,9 @@ const server = http.createServer(async (req, res) => {
       const q = (searchParams.get("q") || "").trim();
       const files = q ? await searchFiles(q) : [];
       return sendJson(res, 200, { files: files.slice(0, 8) });
+    }
+    if (req.method === "POST" && pathname === "/api/media/upload") {
+      return sendJson(res, 200, await handleMediaUpload(req, searchParams.get("filename")));
     }
 
     if (req.method === "GET" && pathname === "/api/presets") return sendJson(res, 200, { presets: presetStore.list() });
