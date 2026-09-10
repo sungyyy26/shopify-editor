@@ -297,8 +297,8 @@ function mediaOpRowTpl(row, idx) {
     + "</div>"
     + '<div class="media-grid">'
     + '<label class="field" style="position:relative;"><span class="lbl">정보 (등록된 이미지 제목으로 검색)</span><input type="text" id="e-m-info-' + idx + '" placeholder="예: reseller_thumbnail (이동 모드에서는 사용 안 함)" autocomplete="off"><div class="ac-list" id="e-m-info-ac-' + idx + '" hidden></div></label>'
-    + '<label class="field"><span class="lbl">순서</span><input type="text" inputmode="numeric" id="e-m-order-' + idx + '" placeholder="2"></label>'
-    + '<label class="field"><span class="lbl">이동할 위치</span><input type="text" inputmode="numeric" id="e-m-moveto-' + idx + '" placeholder="1" disabled></label>'
+    + '<label class="field"><span class="lbl">순서</span><input type="text" inputmode="numeric" id="e-m-order-' + idx + '" placeholder="예: 2 (비우면 위치 무관)"></label>'
+    + '<label class="field"><span class="lbl">이동할 위치</span><input type="text" inputmode="numeric" id="e-m-moveto-' + idx + '" placeholder="예: 1" disabled></label>'
     + "</div>"
     + '<div class="field"><span class="lbl">방식</span><div class="modewrap" id="editModeWrap-' + idx + '">'
     + '<label class="mode-box" data-val="insert"><input type="checkbox">추가 — 지정 순서에 끼워 넣고 이후 밀기</label>'
