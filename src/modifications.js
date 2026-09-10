@@ -54,12 +54,26 @@ async function planMedia(product, media, cache) {
   const existing = product.media.find((m) => m.alt === info);
 
   if (mode === "delete") {
-    let target = existing;
-    if (!target && media.order) target = product.media[parseInt(media.order, 10) - 1];
-    if (!target) return { action: "skip", reason: `삭제할 이미지를 찾지 못함: "${info}"` };
+    let target;
+    if (media.order) {
+      // 순서가 주어지면 "그 자리의 이미지 제목이 실제로 일치하는지"까지 확인해
+      // 엉뚱한 위치의 다른 이미지를 잘못 지우는 일을 막는다.
+      const position = parseInt(media.order, 10);
+      const atPosition = product.media[position - 1];
+      if (!atPosition) return { action: "skip", reason: `${position}번 위치에 이미지가 없음` };
+      if (atPosition.alt !== info)
+        return {
+          action: "skip",
+          reason: `${position}번 위치의 이미지 제목이 다름 (실제: "${atPosition.alt || "제목 없음"}") - 안전을 위해 건너뜀`,
+        };
+      target = atPosition;
+    } else {
+      target = existing;
+      if (!target) return { action: "skip", reason: `삭제할 이미지를 찾지 못함: "${info}"` };
+    }
     return {
       action: "apply",
-      reason: `이미지 삭제: "${info}"`,
+      reason: `이미지 삭제: "${info}" (${media.order ? media.order + "번" : "위치 무관"})`,
       run: () => shopifyGraphQL(PRODUCT_DELETE_MEDIA, { mediaIds: [target.id], productId: product.id }),
     };
   }
