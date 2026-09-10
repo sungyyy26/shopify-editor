@@ -29,7 +29,7 @@ function thumbFor(p) {
   if (!p.thumbnail) return thumbTile();
   return '<img class="thumb-img" src="' + esc(p.thumbnail) + '" alt="" loading="lazy" onerror="this.outerHTML=THUMB_FALLBACK">';
 }
-function statusLabelOf(code) { return { ACTIVE: "활성", DRAFT: "초안", ARCHIVED: "비공개" }[code] || code; }
+function statusLabelOf(code) { return { ACTIVE: "활성", DRAFT: "초안", ARCHIVED: "미게시/비공개" }[code] || code; }
 function statusClassOf(code) { return { ACTIVE: "r-active", DRAFT: "r-draft", ARCHIVED: "r-archived" }[code] || ""; }
 
 function paginate(items, page, pageSize) {
