@@ -195,6 +195,32 @@ async function refreshCurrentJob() {
   renderJobs(jobs);
 }
 
+/* ---- 검색 디버그 패널: 실제 쿼리와 단계별 결과 개수를 보여줘서 어디서 결과가
+   사라지는지 직접 확인할 수 있게 함 ---- */
+function renderDebugPanel(debug) {
+  if (!debug) return "";
+  const rows = debug.steps
+    .map((s) => '<div class="tobe-row"><dt>' + esc(s.count) + "건</dt><dd>" + esc(s.label) + "</dd></div>")
+    .join("");
+  return '<button type="button" class="disclosure debugDisclosure" aria-expanded="false" style="margin-top:12px;">검색 조건 상세 (디버그) <span class="caret">▾</span></button>'
+    + '<div class="disclosure-body" hidden>'
+    + '<p class="panel-hint" style="margin:0 0 6px;">쇼피파이로 보낸 실제 쿼리 (상태/URL 핸들):</p>'
+    + '<pre style="white-space:pre-wrap;word-break:break-word;font-family:\'IBM Plex Mono\',monospace;font-size:12px;background:var(--code-bg,var(--paper));padding:8px 10px;border-radius:8px;margin:0 0 12px;">' + esc(debug.query) + "</pre>"
+    + '<p class="panel-hint" style="margin:0 0 4px;">단계별 남은 결과 수 (제목/태그/템플릿은 이 도구에서 "포함" 조건으로 다시 거릅니다):</p>'
+    + rows
+    + "</div>";
+}
+function wireDebugDisclosure(el) {
+  const btn = el.querySelector(".debugDisclosure");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    const body = btn.nextElementSibling;
+    const open = btn.getAttribute("aria-expanded") === "true";
+    btn.setAttribute("aria-expanded", String(!open));
+    body.hidden = open;
+  });
+}
+
 /* ---- Step 1 results (read-only, in place) ---- */
 function renderStep1Results() {
   const el = document.getElementById("step1Results");
@@ -202,7 +228,8 @@ function renderStep1Results() {
   if (!currentJobId) { el.innerHTML = ""; nextWrap.hidden = true; return; }
   const c = currentJobData.candidates || [];
   if (!c.length) {
-    el.innerHTML = '<hr class="divider"><p class="empty">조건에 맞는 상품이 없습니다.</p>';
+    el.innerHTML = '<hr class="divider"><p class="empty">조건에 맞는 상품이 없습니다.</p>' + renderDebugPanel(currentJobData.debug);
+    wireDebugDisclosure(el);
     nextWrap.hidden = true;
     return;
   }
@@ -210,10 +237,12 @@ function renderStep1Results() {
   el.innerHTML = '<hr class="divider">'
     + '<div class="results-head"><h3>조회 결과</h3><span class="count-badge">' + c.length + "건</span></div>"
     + '<div class="results-grid">' + pageItems.map((p) => candidateCard(p, false, false)).join("") + "</div>"
-    + renderPager(page, totalPages, "step1-pager");
+    + renderPager(page, totalPages, "step1-pager")
+    + renderDebugPanel(currentJobData.debug);
   el.querySelectorAll(".step1-pager button[data-page]").forEach((b) => {
     b.addEventListener("click", () => { step1Page = Number(b.dataset.page); renderStep1Results(); });
   });
+  wireDebugDisclosure(el);
   nextWrap.hidden = false;
 }
 document.getElementById("step1NextBtn").addEventListener("click", () => setStep(2));

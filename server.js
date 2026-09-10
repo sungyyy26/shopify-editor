@@ -49,10 +49,14 @@ async function searchProducts(conditions) {
     cursor = data.products.pageInfo.endCursor;
   }
 
+  // 각 단계별로 몇 개가 남는지 기록 -> 화면에서 어느 조건 때문에 결과가 사라졌는지 확인 가능
+  const debug = { query: query || "(없음 - 전체 조회)", steps: [{ label: "쇼피파이 상태/핸들 필터", count: products.length }] };
+
   // 제목/태그/템플릿은 부분 일치("포함")를 기대하므로 서버 쿼리 대신 여기서 필터링
   if (title && title.trim()) {
     const needle = title.trim().toLowerCase();
     products = products.filter((p) => p.title.toLowerCase().includes(needle));
+    debug.steps.push({ label: `제목에 "${title.trim()}" 포함`, count: products.length });
   }
   if (tags && tags.trim()) {
     // 쉼표로 여러 태그를 입력하면 그 중 하나라도 포함하면 매칭 (OR)
@@ -61,12 +65,14 @@ async function searchProducts(conditions) {
       const productTags = p.tags.map((t) => t.toLowerCase());
       return needles.some((needle) => productTags.some((t) => t.includes(needle)));
     });
+    debug.steps.push({ label: `태그에 [${needles.join(", ")}] 중 하나라도 포함`, count: products.length });
   }
   if (template && template.trim()) {
     const needle = template.trim().toLowerCase();
     products = products.filter((p) => p.template.toLowerCase().includes(needle));
+    debug.steps.push({ label: `템플릿에 "${template.trim()}" 포함`, count: products.length });
   }
-  return products;
+  return { products, debug };
 }
 
 async function fetchProductsByIds(ids) {
@@ -80,12 +86,13 @@ function newJobId() {
 
 async function handleCreateJob(body) {
   const filter = body.filter || {};
-  const candidates = await searchProducts(filter);
+  const { products: candidates, debug } = await searchProducts(filter);
   const job = {
     id: newJobId(),
     createdAt: new Date().toISOString(),
     status: "후보조회됨",
     filter,
+    debug,
     candidates,
     edits: null,
     selectedProductIds: null,
