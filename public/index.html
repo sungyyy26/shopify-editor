@@ -41,6 +41,11 @@
     <div class="panel">
       <div class="panel-head"><span class="panel-num">01</span><span class="panel-title">조건</span></div>
       <p class="panel-hint">아래 중 하나 이상 입력하세요.</p>
+      <div class="field">
+        <span class="lbl">즐겨찾기</span>
+        <div class="chiprow" id="presetChips"></div>
+        <button type="button" class="btn-secondary" id="savePresetBtn" style="align-self:flex-start;margin-top:8px;">현재 조건 즐겨찾기로 저장</button>
+      </div>
       <form id="filterForm">
         <div class="field">
           <span class="lbl">상태 (복수 선택 가능)</span>
@@ -53,7 +58,7 @@
         </div>
         <label class="field"><span class="lbl">제목</span><input type="text" id="f-title" placeholder="상품 제목에 포함된 단어"></label>
         <label class="field"><span class="lbl">태그</span><input type="text" id="f-tag" placeholder="쉼표로 구분 (하나라도 포함하면 조회)"></label>
-        <label class="field"><span class="lbl">URL 핸들</span><input type="text" id="f-handle" placeholder="예: ad-202609-4288 또는 전체 URL 붙여넣기"></label>
+        <label class="field"><span class="lbl">URL 핸들 (여러 개 가능)</span><textarea id="f-handle" rows="3" placeholder="한 줄에 하나씩, 핸들 또는 전체 URL 붙여넣기&#10;예: ad-202609-4288&#10;https://eqqualberryglobal.com/products/ad-202609-4301"></textarea></label>
         <label class="field"><span class="lbl">템플릿</span><input type="text" id="f-template" placeholder="예: landing-amazon"></label>
         <div class="actions">
           <span class="hint-req" id="reqHint">조건을 1개 이상 입력해야 검색할 수 있습니다.</span>

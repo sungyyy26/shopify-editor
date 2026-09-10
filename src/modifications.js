@@ -7,13 +7,19 @@ const {
   PRODUCT_DELETE_MEDIA,
 } = require("./queries");
 
+async function searchFiles(query) {
+  const data = await shopifyGraphQL(FIND_FILE_BY_TITLE, { query });
+  return data.files.edges.map((e) => {
+    const n = e.node;
+    return { id: n.id, alt: n.alt, url: n.image ? n.image.url : n.url || null };
+  });
+}
+
 async function findFileUrlByTitle(title) {
-  const data = await shopifyGraphQL(FIND_FILE_BY_TITLE, { query: title });
-  const nodes = data.files.edges.map((e) => e.node);
-  const exact = nodes.find((n) => n.alt === title);
-  const node = exact || nodes[0];
-  if (!node) return null;
-  return node.image ? node.image.url : node.url || null;
+  const files = await searchFiles(title);
+  const exact = files.find((f) => f.alt === title);
+  const file = exact || files[0];
+  return file ? file.url : null;
 }
 
 // 태그 값 배열을 추가/교체/삭제 방식에 따라 최종 태그 배열로 계산 (실제 API 호출 없는 순수 함수)
@@ -143,4 +149,4 @@ async function applyModifications(product, modifications, cache) {
   }
 }
 
-module.exports = { evaluateModifications, applyModifications };
+module.exports = { evaluateModifications, applyModifications, searchFiles };

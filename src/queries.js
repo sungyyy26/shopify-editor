@@ -10,9 +10,11 @@ const STATUS_CLAUSE = {
 // 제목/태그는 부분 일치("포함")를 기대하는데, Shopify의 tag: 필터는 완전 일치만 지원하고
 // 특수문자(#, +, [, ] 등)는 검색 쿼리 문법과 충돌할 수 있어 둘 다 서버 쿼리에서 제외하고
 // 서버에서 받아온 결과를 자바스크립트로 다시 필터링한다.
-function buildProductSearchQuery({ statuses, handle }) {
+function buildProductSearchQuery({ statuses, handles }) {
   const clauses = [];
-  if (handle && handle.trim()) clauses.push(`handle:${handle.trim()}`);
+  const handleList = (handles || []).map((h) => h.trim()).filter(Boolean);
+  if (handleList.length === 1) clauses.push(`handle:${handleList[0]}`);
+  else if (handleList.length > 1) clauses.push("(" + handleList.map((h) => `handle:${h}`).join(" OR ") + ")");
   const activeStatuses = (statuses || []).filter(
     (s) => s && s !== "all" && STATUS_CLAUSE[s]
   );

@@ -8,8 +8,9 @@ loadEnv();
 const { buildAuthorizeUrl, verifyHmac, exchangeCodeForToken } = require("./src/oauth");
 const { shopifyGraphQL } = require("./src/shopify");
 const { buildProductSearchQuery, PRODUCT_SEARCH, PRODUCTS_BY_IDS } = require("./src/queries");
-const { evaluateModifications, applyModifications } = require("./src/modifications");
+const { evaluateModifications, applyModifications, searchFiles } = require("./src/modifications");
 const jobStore = require("./src/jobStore");
+const presetStore = require("./src/presetStore");
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
@@ -33,7 +34,7 @@ async function searchProducts(conditions) {
   const { title, tags, template } = conditions || {};
   const hasCondition =
     (title && title.trim()) ||
-    (conditions.handle && conditions.handle.trim()) ||
+    (conditions.handles || []).some((h) => h.trim()) ||
     (tags && tags.trim()) ||
     (template && template.trim()) ||
     (conditions.statuses || []).length;
@@ -237,6 +238,7 @@ async function handleAuthCallback(req, res, query) {
 const server = http.createServer(async (req, res) => {
   const { pathname, searchParams } = new URL(req.url, "http://localhost");
   const jobMatch = pathname.match(/^\/api\/jobs\/([^/]+)(\/(preview|apply))?$/);
+  const presetMatch = pathname.match(/^\/api\/presets\/([^/]+)$/);
 
   try {
     if (req.method === "GET" && pathname === "/auth") return startAuth(req, res);
@@ -262,6 +264,25 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.method === "POST" && action === "preview") return sendJson(res, 200, await handlePreviewJob(id));
       if (req.method === "POST" && action === "apply") return sendJson(res, 200, await handleApplyJob(id));
+    }
+
+    if (req.method === "GET" && pathname === "/api/media/search") {
+      const q = (searchParams.get("q") || "").trim();
+      const files = q ? await searchFiles(q) : [];
+      return sendJson(res, 200, { files: files.slice(0, 8) });
+    }
+
+    if (req.method === "GET" && pathname === "/api/presets") return sendJson(res, 200, { presets: presetStore.list() });
+    if (req.method === "POST" && pathname === "/api/presets") {
+      const body = await readJsonBody(req);
+      if (!body.name || !body.name.trim()) throw new Error("이름을 입력해주세요");
+      const preset = { id: crypto.randomUUID(), name: body.name.trim(), filter: body.filter || {}, createdAt: new Date().toISOString() };
+      presetStore.create(preset);
+      return sendJson(res, 200, preset);
+    }
+    if (presetMatch && req.method === "DELETE") {
+      presetStore.remove(presetMatch[1]);
+      return sendJson(res, 200, { ok: true });
     }
 
     if (req.method === "GET") return serveStatic(req, res, pathname);

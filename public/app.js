@@ -112,16 +112,80 @@ function extractHandle(raw) {
   const parts = v.split("/").filter(Boolean);
   return parts[parts.length - 1];
 }
+// 줄바꿈 또는 쉼표로 여러 핸들/URL을 한 번에 입력할 수 있게 파싱
+function extractHandles(raw) {
+  const pieces = raw.split(/[\n,]/).map((s) => extractHandle(s)).filter(Boolean);
+  return Array.from(new Set(pieces));
+}
 function buildFilterObj() {
   const filter = {};
   if (fEls["f-title"].value.trim()) filter.title = fEls["f-title"].value.trim();
   const statuses = getStatuses();
   if (statuses.length) filter.statuses = statuses;
   if (fEls["f-tag"].value.trim()) filter.tags = fEls["f-tag"].value.trim();
-  if (fEls["f-handle"].value.trim()) filter.handle = extractHandle(fEls["f-handle"].value);
+  const handles = extractHandles(fEls["f-handle"].value);
+  if (handles.length) filter.handles = handles;
   if (fEls["f-template"].value.trim()) filter.template = fEls["f-template"].value.trim();
   return filter;
 }
+
+/* ---------- 즐겨찾기 (자주 쓰는 조건) ---------- */
+let allPresets = [];
+async function loadPresets() {
+  try {
+    const { presets } = await api("GET", "/api/presets");
+    allPresets = presets;
+    renderPresets();
+  } catch (err) { /* 즐겨찾기 로드 실패는 조용히 무시 */ }
+}
+function renderPresets() {
+  const el = document.getElementById("presetChips");
+  if (!allPresets.length) { el.innerHTML = '<span class="panel-hint" style="margin:0;">저장된 조건이 없습니다.</span>'; return; }
+  el.innerHTML = allPresets
+    .map(
+      (p) =>
+        '<span class="chip preset-chip" data-id="' + esc(p.id) + '" style="cursor:default;display:inline-flex;align-items:center;gap:7px;">'
+        + '<span class="preset-apply" style="cursor:pointer;">' + esc(p.name) + "</span>"
+        + '<button type="button" class="preset-del" data-id="' + esc(p.id) + '" title="삭제" style="background:none;border:none;color:inherit;cursor:pointer;padding:0;font-size:12px;line-height:1;">✕</button>'
+        + "</span>"
+    )
+    .join("");
+  el.querySelectorAll(".preset-chip").forEach((chip) => {
+    chip.querySelector(".preset-apply").addEventListener("click", () => {
+      applyPreset(allPresets.find((p) => p.id === chip.dataset.id));
+    });
+  });
+  el.querySelectorAll(".preset-del").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        await api("DELETE", "/api/presets/" + btn.dataset.id);
+        await loadPresets();
+      } catch (err) { showToast("삭제 실패: " + err.message); }
+    });
+  });
+}
+function applyPreset(preset) {
+  if (!preset) return;
+  const f = preset.filter || {};
+  fEls["f-title"].value = f.title || "";
+  fEls["f-tag"].value = f.tags || "";
+  fEls["f-handle"].value = (f.handles || []).join("\n");
+  fEls["f-template"].value = f.template || "";
+  statusChips.forEach((c) => setChip(c, (f.statuses || []).includes(c.dataset.val)));
+  onFilterFormChange();
+  showToast('즐겨찾기 "' + preset.name + '" 조건을 불러왔습니다.');
+}
+document.getElementById("savePresetBtn").addEventListener("click", async () => {
+  if (!hasAnyFilter()) { showToast("저장할 조건을 먼저 입력하세요."); return; }
+  const name = prompt("이 조건의 이름을 입력하세요:");
+  if (!name || !name.trim()) return;
+  try {
+    await api("POST", "/api/presets", { name: name.trim(), filter: buildFilterObj() });
+    showToast("즐겨찾기에 저장했습니다.");
+    await loadPresets();
+  } catch (err) { showToast("저장 실패: " + err.message); }
+});
 
 document.getElementById("filterForm").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -169,6 +233,7 @@ let step2Selected = new Set();
 let step2InitedFor = null;
 
 async function init() {
+  loadPresets();
   try {
     const { jobs } = await api("GET", "/api/jobs");
     const active = jobs.find((j) => ["후보조회됨", "선택완료", "확인완료"].includes(j.status));
@@ -214,7 +279,6 @@ function renderStep1Results() {
   el.querySelectorAll(".step1-pager button[data-page]").forEach((b) => {
     b.addEventListener("click", () => { step1Page = Number(b.dataset.page); renderStep1Results(); });
   });
-  wireDebugDisclosure(el);
   nextWrap.hidden = false;
 }
 document.getElementById("step1NextBtn").addEventListener("click", () => setStep(2));
@@ -223,7 +287,7 @@ document.getElementById("step1NextBtn").addEventListener("click", () => setStep(
 const mediaModeTpl = () =>
   '<div class="media-row"><span class="lbl">미디어</span>'
   + '<div class="media-grid">'
-  + '<label class="field"><span class="lbl">정보 (등록된 이미지 제목으로 검색)</span><input type="text" id="e-m-info" placeholder="예: reseller_thumbnail"></label>'
+  + '<label class="field" style="position:relative;"><span class="lbl">정보 (등록된 이미지 제목으로 검색)</span><input type="text" id="e-m-info" placeholder="예: reseller_thumbnail" autocomplete="off"><div class="ac-list" id="e-m-info-ac" hidden></div></label>'
   + '<label class="field"><span class="lbl">순서</span><input type="text" inputmode="numeric" id="e-m-order" placeholder="2"></label>'
   + "</div>"
   + '<div class="field"><span class="lbl">방식</span><div class="modewrap" id="editModeWrap">'
@@ -330,7 +394,44 @@ function wireModeWrap(wrapEl) {
   return () => { const on = modeBoxes.find((b) => b.classList.contains("on")); return on ? on.dataset.val : null; };
 }
 
+function wireMediaAutocomplete(input, listEl) {
+  let debounceTimer;
+  input.addEventListener("input", () => {
+    clearTimeout(debounceTimer);
+    const q = input.value.trim();
+    if (!q) { listEl.hidden = true; listEl.innerHTML = ""; return; }
+    debounceTimer = setTimeout(async () => {
+      try {
+        const { files } = await api("GET", "/api/media/search?q=" + encodeURIComponent(q));
+        if (!files.length) { listEl.hidden = true; listEl.innerHTML = ""; return; }
+        listEl.innerHTML = files
+          .map(
+            (f) =>
+              '<div class="ac-item" data-alt="' + esc(f.alt || "") + '">'
+              + (f.url ? '<img src="' + esc(f.url) + '" class="ac-thumb">' : '<div class="ac-thumb"></div>')
+              + "<span>" + esc(f.alt || "(제목 없음)") + "</span></div>"
+          )
+          .join("");
+        listEl.hidden = false;
+        listEl.querySelectorAll(".ac-item").forEach((item) => {
+          item.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            input.value = item.dataset.alt;
+            listEl.hidden = true;
+            listEl.innerHTML = "";
+          });
+        });
+      } catch (err) {
+        listEl.hidden = true;
+      }
+    }, 300);
+  });
+  input.addEventListener("blur", () => { listEl.hidden = true; });
+  input.addEventListener("focus", () => { if (listEl.innerHTML) listEl.hidden = false; });
+}
+
 function wireEditForm() {
+  wireMediaAutocomplete(document.getElementById("e-m-info"), document.getElementById("e-m-info-ac"));
   const getMediaMode = wireModeWrap(document.getElementById("editModeWrap"));
   const getTagMode = wireModeWrap(document.getElementById("editTagModeWrap"));
   document.getElementById("editForm").addEventListener("submit", async (e) => {
@@ -508,7 +609,7 @@ function jobSummaryLine(job) {
     f.title ? "제목:" + f.title : null,
     f.statuses && f.statuses.length ? "상태:" + f.statuses.join(",") : null,
     f.tags ? "태그:" + f.tags : null,
-    f.handle ? "핸들:" + f.handle : null,
+    f.handles && f.handles.length ? "핸들:" + f.handles.join(",") : null,
     f.template ? "템플릿:" + f.template : null,
   ].filter(Boolean);
   return parts.join(" · ") || "조건 없음";
@@ -530,7 +631,7 @@ function renderJobs(jobs) {
       f.title ? ["제목", f.title] : null,
       f.statuses && f.statuses.length ? ["상태", f.statuses.join(", ")] : null,
       f.tags ? ["태그", f.tags] : null,
-      f.handle ? ["핸들", f.handle] : null,
+      f.handles && f.handles.length ? ["핸들", f.handles.join(", ")] : null,
       f.template ? ["템플릿", f.template] : null,
       job.selectedProductIds && job.selectedProductIds.length ? ["선택", job.selectedProductIds.length + "개 상품"] : null,
     ].filter(Boolean);
