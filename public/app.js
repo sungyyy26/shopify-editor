@@ -512,12 +512,17 @@ function wireMediaOpsContainer() {
 }
 function el_qsa(sel) { return [...document.querySelectorAll(sel)]; }
 
+function tagValueLabelFor(mode) {
+  return { add: "태그 값 (쉼표로 여러 개)", remove: "삭제할 태그 (쉼표로 여러 개)", replace: '기존 태그 (쉼표로 여러 개, "전체" 입력 시 태그 전체 교체)' }[mode]
+    || "태그 값 (쉼표로 여러 개)";
+}
 const tagModeTpl = () =>
   '<div class="media-row"><span class="lbl">태그</span>'
-  + '<label class="field"><span class="lbl">태그 값 (쉼표로 여러 개)</span><input type="text" id="e-t-value" placeholder="예: n-srm, sale"></label>'
+  + '<label class="field"><span class="lbl" id="e-t-value-lbl">' + esc(tagValueLabelFor(null)) + '</span><input type="text" id="e-t-value" placeholder="예: n-srm, sale"></label>'
+  + '<label class="field" id="e-t-newvalue-wrap" hidden><span class="lbl">변경할 태그 (기존과 같은 개수, "전체" 교체 시 새 태그 전체 목록)</span><input type="text" id="e-t-newvalue" placeholder="예: n-srm-new, sale-new" disabled></label>'
   + '<div class="field"><span class="lbl">방식</span><div class="modewrap" id="editTagModeWrap">'
   + '<label class="mode-box" data-val="add"><input type="checkbox">추가 — 기존 태그에 더하기</label>'
-  + '<label class="mode-box" data-val="replace"><input type="checkbox">교체 — 태그 전체를 이 값으로 바꾸기</label>'
+  + '<label class="mode-box" data-val="replace"><input type="checkbox">교체 — 지정한 기존 태그를 변경 태그로 바꾸기</label>'
   + '<label class="mode-box" data-val="remove"><input type="checkbox">삭제 — 이 태그만 제거</label>'
   + "</div></div></div>";
 
@@ -532,8 +537,8 @@ function renderStep2() {
     mediaOpDraft = [newMediaOpRow()];
     html += '<p class="panel-hint">채울 항목만 적용됩니다. 미디어는 여러 작업을 순서대로 추가해 한 번에 적용할 수 있습니다 (각 작업은 이전 작업이 이미 반영된 상태를 기준으로 계산됩니다).</p>'
       + '<form id="editForm">'
-      + '<label class="field"><span class="lbl">제목</span><input type="text" id="e-title" placeholder="새 제목"></label>'
-      + '<label class="field"><span class="lbl">설명 (HTML)</span><textarea id="e-desc" class="code-input" placeholder="&lt;p&gt;설명 HTML&lt;/p&gt;"></textarea></label>'
+      + '<div class="field-box"><label class="field"><span class="lbl">제목</span><input type="text" id="e-title" placeholder="새 제목"></label></div>'
+      + '<div class="field-box"><label class="field"><span class="lbl">설명 (HTML)</span><textarea id="e-desc" class="code-input" placeholder="&lt;p&gt;설명 HTML&lt;/p&gt;"></textarea></label></div>'
       + '<div id="mediaOpsContainer"></div>'
       + tagModeTpl()
       + '<div class="actions"><span class="hint-req">수정사항을 1개 이상 입력하세요.</span>'
@@ -550,7 +555,7 @@ function renderStep2() {
     ["제목", e.title || '<span class="tobe-nochange">(변경 없음)</span>'],
     ["설명", e.description ? esc(e.description.length) + "자 HTML" : '<span class="tobe-nochange">(변경 없음)</span>'],
     ["미디어", e.mediaOps && e.mediaOps.length ? esc(mediaOpsSummaryText(e.mediaOps)) : '<span class="tobe-nochange">(변경 없음)</span>'],
-    ["태그", e.tags ? esc(e.tags.value) + " · " + esc(modeLabelTags(e.tags.mode)) : '<span class="tobe-nochange">(변경 없음)</span>'],
+    ["태그", e.tags ? esc(tagsSummaryText(e.tags)) : '<span class="tobe-nochange">(변경 없음)</span>'],
   ];
   html += '<div class="edit-summary">' + editRows.map((r) => '<div class="edit-summary-row"><dt>' + esc(r[0]) + "</dt><dd>" + r[1] + "</dd></div>").join("") + "</div>"
     + '<button type="button" class="btn-secondary" id="editAgainBtn" style="align-self:flex-start;">수정사항 다시 입력</button>'
@@ -629,8 +634,13 @@ function mediaSummaryText(op) {
   return parts.join(", ") + " · " + modeLabelMedia(op.mode);
 }
 function modeLabelTags(m) { return { add: "추가", replace: "교체", remove: "삭제" }[m] || "-"; }
+function tagsSummaryText(t) {
+  if (!t) return "";
+  if (t.mode === "replace") return t.value + " → " + t.newValue + " · 교체";
+  return t.value + " · " + modeLabelTags(t.mode);
+}
 
-function wireModeWrap(wrapEl) {
+function wireModeWrap(wrapEl, onChange) {
   const modeBoxes = [...wrapEl.querySelectorAll(".mode-box")];
   modeBoxes.forEach((box) => {
     box.addEventListener("click", (e) => {
@@ -638,6 +648,7 @@ function wireModeWrap(wrapEl) {
       const turningOn = !box.classList.contains("on");
       modeBoxes.forEach((b) => { b.classList.remove("on"); b.querySelector("input").checked = false; });
       if (turningOn) { box.classList.add("on"); box.querySelector("input").checked = true; }
+      if (onChange) onChange(turningOn ? box.dataset.val : null);
     });
   });
   return () => { const on = modeBoxes.find((b) => b.classList.contains("on")); return on ? on.dataset.val : null; };
@@ -680,7 +691,16 @@ function wireMediaAutocomplete(input, listEl, onSelect) {
 }
 
 function wireEditForm() {
-  const getTagMode = wireModeWrap(document.getElementById("editTagModeWrap"));
+  const tagValueLbl = document.getElementById("e-t-value-lbl");
+  const tagNewValueWrap = document.getElementById("e-t-newvalue-wrap");
+  const tagNewValueEl = document.getElementById("e-t-newvalue");
+  const getTagMode = wireModeWrap(document.getElementById("editTagModeWrap"), (mode) => {
+    tagValueLbl.textContent = tagValueLabelFor(mode);
+    const isReplace = mode === "replace";
+    tagNewValueWrap.hidden = !isReplace;
+    tagNewValueEl.disabled = !isReplace;
+    if (!isReplace) tagNewValueEl.value = "";
+  });
   document.getElementById("editForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     syncMediaOpDraftFromDom();
@@ -688,6 +708,7 @@ function wireEditForm() {
     const title = document.getElementById("e-title").value.trim();
     const desc = document.getElementById("e-desc").value.trim();
     const tagValue = document.getElementById("e-t-value").value.trim();
+    const tagNewValue = document.getElementById("e-t-newvalue").value.trim();
     if (title) edits.title = title;
     if (desc) edits.description = desc;
 
@@ -744,9 +765,26 @@ function wireEditForm() {
     }
     if (mediaOps.length) edits.mediaOps = mediaOps;
 
-    if (tagValue) edits.tags = { value: tagValue, mode: getTagMode() };
+    if (tagValue || tagNewValue) {
+      const tagMode = getTagMode();
+      if (!tagMode) { showToast("태그 방식(추가/교체/삭제)을 선택하세요."); return; }
+      if (tagMode === "replace") {
+        if (!tagValue) { showToast("교체할 기존 태그를 입력하세요."); return; }
+        if (!tagNewValue) { showToast("변경할 태그를 입력하세요."); return; }
+        const oldVals = tagValue.split(",").map((s) => s.trim()).filter(Boolean);
+        const newVals = tagNewValue.split(",").map((s) => s.trim()).filter(Boolean);
+        const isAll = oldVals.length === 1 && oldVals[0] === "전체";
+        if (!isAll && oldVals.length !== newVals.length) {
+          showToast(`변경할 태그는 기존 태그 개수(${oldVals.length}개)와 동일하게 입력하거나, 기존 태그에 "전체"만 입력하세요.`);
+          return;
+        }
+        edits.tags = { mode: "replace", value: tagValue, newValue: tagNewValue };
+      } else {
+        if (!tagValue) { showToast("태그 값을 입력하세요."); return; }
+        edits.tags = { mode: tagMode, value: tagValue };
+      }
+    }
     if (!Object.keys(edits).length) { showToast("수정사항을 1개 이상 입력하세요."); return; }
-    if (edits.tags && !edits.tags.mode) { showToast("태그 방식(추가/교체/삭제)을 선택하세요."); return; }
     const btn = document.getElementById("editSubmitBtn");
     btn.disabled = true;
     try {
@@ -822,7 +860,7 @@ function renderTobe(e, preview) {
     ["제목", e.title ? esc(e.title) : '<span class="tobe-nochange">(변경 없음)</span>'],
     ["설명", e.description ? "새 설명 HTML 적용됨 (" + e.description.length + "자)" : '<span class="tobe-nochange">(변경 없음)</span>'],
     ["미디어", e.mediaOps && e.mediaOps.length ? esc(mediaOpsSummaryText(e.mediaOps)) : '<span class="tobe-nochange">(변경 없음)</span>'],
-    ["태그", e.tags ? esc(e.tags.value) + " · " + esc(modeLabelTags(e.tags.mode)) : '<span class="tobe-nochange">(변경 없음)</span>'],
+    ["태그", e.tags ? esc(tagsSummaryText(e.tags)) : '<span class="tobe-nochange">(변경 없음)</span>'],
   ];
   let html = '<div class="tobe-block"><p class="tobe-head">적용 후 TO-BE</p>'
     + rows.map((r) => '<div class="tobe-row"><dt>' + esc(r[0]) + "</dt><dd>" + r[1] + "</dd></div>").join("");
@@ -990,7 +1028,7 @@ function renderJobs(jobs) {
       e.title ? ["제목", e.title] : null,
       e.description ? ["설명", e.description.length > 40 ? e.description.slice(0, 40) + "…" : e.description] : null,
       e.mediaOps && e.mediaOps.length ? ["미디어", mediaOpsSummaryText(e.mediaOps)] : null,
-      e.tags ? ["태그", e.tags.value + (e.tags.mode ? " · " + modeLabelTags(e.tags.mode) : "")] : null,
+      e.tags ? ["태그", tagsSummaryText(e.tags)] : null,
     ].filter(Boolean);
     const status = job.status || "후보조회됨";
     const result = job.result;

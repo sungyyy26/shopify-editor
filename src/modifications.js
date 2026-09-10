@@ -69,15 +69,42 @@ async function findFileUrlByTitles(titles, cache) {
 
 // 태그 값 배열을 추가/교체/삭제 방식에 따라 최종 태그 배열로 계산 (실제 API 호출 없는 순수 함수)
 function planTags(product, tagsMod) {
-  if (!tagsMod || !tagsMod.value || !tagsMod.value.trim()) return null;
-  const values = tagsMod.value.split(",").map((t) => t.trim()).filter(Boolean);
+  if (!tagsMod || !tagsMod.mode) return null;
   const current = product.tags;
+
+  if (tagsMod.mode === "replace") {
+    const oldValues = (tagsMod.value || "").split(",").map((t) => t.trim()).filter(Boolean);
+    const newValues = (tagsMod.newValue || "").split(",").map((t) => t.trim()).filter(Boolean);
+    if (!oldValues.length || !newValues.length) return null;
+
+    // "전체"만 입력하면 태그 전체를 새 목록으로 완전히 교체 (예전 "교체" 동작과 동일)
+    if (oldValues.length === 1 && oldValues[0] === "전체") {
+      const newTags = newValues;
+      const changed = newTags.length !== current.length || newTags.some((t) => !current.includes(t)) || current.some((t) => !newTags.includes(t));
+      if (!changed) return { action: "skip", reason: "태그 전체 교체 (변경 없음)" };
+      return { action: "apply", reason: `태그 전체 교체: ${newValues.join(", ")}`, newTags };
+    }
+
+    // 그 외에는 기존 태그(들)를 변경 태그(들)로 순서대로 1:1 교체 (없는 태그는 건너뜀)
+    const newTags = current.slice();
+    const applied = [];
+    oldValues.forEach((oldVal, i) => {
+      const newVal = newValues[i];
+      const idx = newTags.indexOf(oldVal);
+      if (idx !== -1 && newVal && newTags[idx] !== newVal) {
+        newTags[idx] = newVal;
+        applied.push(`${oldVal} → ${newVal}`);
+      }
+    });
+    if (!applied.length) return { action: "skip", reason: `교체할 태그를 찾지 못함: "${oldValues.join(", ")}"` };
+    return { action: "apply", reason: `태그 교체: ${applied.join(", ")}`, newTags };
+  }
+
+  if (!tagsMod.value || !tagsMod.value.trim()) return null;
+  const values = tagsMod.value.split(",").map((t) => t.trim()).filter(Boolean);
   let newTags;
   let label;
-  if (tagsMod.mode === "replace") {
-    newTags = values;
-    label = "태그 교체";
-  } else if (tagsMod.mode === "remove") {
+  if (tagsMod.mode === "remove") {
     newTags = current.filter((t) => !values.includes(t));
     label = "태그 삭제";
   } else {
