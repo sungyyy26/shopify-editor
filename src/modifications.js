@@ -8,8 +8,27 @@ const {
   PRODUCT_DELETE_MEDIA,
 } = require("./queries");
 
+// 쇼피파이는 같은 이름의 파일을 여러 번 올리면 무작위 UUID를 파일명 뒤에 붙인다.
+// 대체 텍스트가 없는 파일은 그 UUID를 뗀 "원래 파일명"을 제목처럼 사용할 수 있게 한다.
+function baseFilename(url) {
+  if (!url) return "";
+  try {
+    const last = new URL(url).pathname.split("/").pop() || "";
+    const withoutExt = last.replace(/\.[a-zA-Z0-9]+$/, "");
+    return withoutExt.replace(/_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "");
+  } catch {
+    return "";
+  }
+}
+
+// 이미지 하나를 대표하는 "표시 이름": 대체 텍스트가 있으면 그것, 없으면 원래 파일명
+function mediaDisplayName(m) {
+  return (m.alt && m.alt.trim()) || baseFilename(m.url);
+}
+
 function mapFileNode(node) {
-  return { id: node.id, alt: node.alt, url: node.image ? node.image.url : node.url || null };
+  const url = node.image ? node.image.url : node.url || null;
+  return { id: node.id, alt: node.alt, url, displayName: (node.alt && node.alt.trim()) || baseFilename(url) };
 }
 
 // 쇼피파이 파일 검색은 파일명만 검색하므로(대체 텍스트는 검색 안 함), 최근 등록된
@@ -23,7 +42,7 @@ async function searchFiles(query) {
   const filenameMatches = byFilename.files.edges.map((e) => mapFileNode(e.node));
   const altMatches = recent.files.edges
     .map((e) => mapFileNode(e.node))
-    .filter((f) => f.alt && f.alt.toLowerCase().includes(needle));
+    .filter((f) => f.displayName && f.displayName.toLowerCase().includes(needle));
 
   const merged = filenameMatches.slice();
   for (const f of altMatches) {
@@ -32,11 +51,20 @@ async function searchFiles(query) {
   return merged;
 }
 
-async function findFileUrlByTitle(title) {
-  const files = await searchFiles(title);
-  const exact = files.find((f) => f.alt === title);
-  const file = exact || files[0];
-  return file ? file.url : null;
+// title(들) 중 하나라도 파일명/대체 텍스트로 매칭되는 파일을 찾아 그 URL을 반환
+async function findFileUrlByTitles(titles, cache) {
+  for (const title of titles) {
+    let url = cache.get(title);
+    if (url === undefined) {
+      const files = await searchFiles(title);
+      const exact = files.find((f) => f.displayName === title);
+      const file = exact || files[0];
+      url = file ? file.url : null;
+      cache.set(title, url);
+    }
+    if (url) return url;
+  }
+  return null;
 }
 
 // 태그 값 배열을 추가/교체/삭제 방식에 따라 최종 태그 배열로 계산 (실제 API 호출 없는 순수 함수)
@@ -61,14 +89,38 @@ function planTags(product, tagsMod) {
   return { action: "apply", reason: `${label}: ${values.join(", ")}`, newTags };
 }
 
-// 미디어 작업 하나가 "지금 이 순간의" media 배열([{id, alt}, ...])을 기준으로 무엇을 할지
+// 실제로 새 미디어를 등록하고(필요하면) 지정 위치로 옮기고(필요하면) 기존 것을 지우는 공통 실행부.
+// addTitles 중 처음으로 실제 파일과 매칭되는 제목을 사용해 등록한다.
+function makeAddMediaExecutor({ addTitles, position, oldId, cache }) {
+  return async (productId) => {
+    const url = await findFileUrlByTitles(addTitles, cache);
+    if (!url) throw new Error(`미디어를 쇼피파이에서 찾지 못함: "${addTitles.join(", ")}"`);
+    const created = await shopifyGraphQL(PRODUCT_CREATE_MEDIA, {
+      productId,
+      media: [{ originalSource: url, mediaContentType: "IMAGE", alt: addTitles[0] }],
+    });
+    if (created.productCreateMedia.mediaUserErrors.length)
+      throw new Error(created.productCreateMedia.mediaUserErrors.map((e) => e.message).join(", "));
+    const newMediaId = created.productCreateMedia.media[0].id;
+
+    const reordered = await shopifyGraphQL(PRODUCT_REORDER_MEDIA, { id: productId, moves: [{ id: newMediaId, newPosition: String(position - 1) }] });
+    if (reordered.productReorderMedia.mediaUserErrors.length)
+      throw new Error(reordered.productReorderMedia.mediaUserErrors.map((e) => e.message).join(", "));
+
+    if (oldId) await shopifyGraphQL(PRODUCT_DELETE_MEDIA, { mediaIds: [oldId], productId });
+    return newMediaId;
+  };
+}
+
+// 미디어 작업 하나가 "지금 이 순간의" media 배열([{id, alt, url}, ...])을 기준으로 무엇을 할지
 // 계산한다. 실제 mutation은 절대 호출하지 않는 순수 계산 + 읽기 전용 파일 조회만 수행하며,
 // 성공 시 simulate(현재 목록을 반영한 다음 목록 계산)와 execute(실제 mutation 실행,
 // 새로 만들어진 미디어가 있으면 그 id를 반환) 콜백을 함께 반환한다.
 async function deriveMediaOpPlan(media, op, cache) {
   if (!op || !op.mode) return null;
   const mode = op.mode;
-  const info = (op.info || "").trim();
+  const infoList = (op.infoList || []).map((s) => s.trim()).filter(Boolean);
+  const newInfo = (op.newInfo || "").trim();
 
   if (mode === "move") {
     const from = parseInt(op.order, 10);
@@ -98,23 +150,23 @@ async function deriveMediaOpPlan(media, op, cache) {
   if (mode === "delete") {
     let targetIndex = -1;
     if (op.order) {
-      // 순서가 주어지면 "그 자리의 이미지 제목이 실제로 일치하는지"까지 확인해
+      // 순서가 주어지면 "그 자리의 이미지가 실제로 일치하는지"까지 확인해
       // 엉뚱한 위치의 다른 이미지를 잘못 지우는 일을 막는다.
       const position = parseInt(op.order, 10);
       const atPosition = media[position - 1];
       if (!atPosition) return { action: "skip", reason: `${position}번 위치에 이미지가 없음` };
-      if (info && atPosition.alt !== info)
-        return { action: "skip", reason: `${position}번 위치의 이미지 제목이 다름 (실제: "${atPosition.alt || "제목 없음"}") - 안전을 위해 건너뜀` };
+      if (infoList.length && !infoList.includes(mediaDisplayName(atPosition)))
+        return { action: "skip", reason: `${position}번 위치의 이미지가 다름 (실제: "${mediaDisplayName(atPosition) || "제목 없음"}") - 안전을 위해 건너뜀` };
       targetIndex = position - 1;
-    } else if (info) {
-      targetIndex = media.findIndex((m) => m.alt === info);
-      if (targetIndex === -1) return { action: "skip", reason: `삭제할 이미지를 찾지 못함: "${info}"` };
+    } else if (infoList.length) {
+      targetIndex = media.findIndex((m) => infoList.includes(mediaDisplayName(m)));
+      if (targetIndex === -1) return { action: "skip", reason: `삭제할 이미지를 찾지 못함: "${infoList.join(", ")}"` };
     } else {
       return { action: "error", reason: "삭제할 이미지를 지정해주세요 (정보 또는 순서)" };
     }
     return {
       action: "apply",
-      reason: `이미지 삭제: ${op.order ? op.order + "번" : `"${info}"`}`,
+      reason: `이미지 삭제: ${op.order ? op.order + "번" : `"${infoList.join(", ")}"`}`,
       simulate: (arr) => {
         const copy = arr.slice();
         copy.splice(targetIndex, 1);
@@ -128,45 +180,51 @@ async function deriveMediaOpPlan(media, op, cache) {
     };
   }
 
-  // 삽입/교체: 이미 같은 제목의 이미지가 등록되어 있으면 위치와 무관하게 건너뜀
-  if (!info) return { action: "error", reason: "정보(이미지 제목)를 입력해주세요" };
-  if (media.some((m) => m.alt === info)) return { action: "skip", reason: `이미 등록된 이미지 (건너뜀): "${info}"` };
-
-  let url = cache.get(info);
-  if (url === undefined) {
-    url = await findFileUrlByTitle(info);
-    cache.set(info, url);
+  if (mode === "titleReplace") {
+    if (!infoList.length) return { action: "error", reason: "기존 이미지를 입력해주세요" };
+    if (!newInfo) return { action: "error", reason: "변경할 이미지를 입력해주세요" };
+    const idx = media.findIndex((m) => infoList.includes(mediaDisplayName(m)));
+    if (idx === -1) return { action: "skip", reason: `교체할 이미지를 찾지 못함: "${infoList.join(", ")}"` };
+    if (media.some((m) => mediaDisplayName(m) === newInfo))
+      return { action: "skip", reason: `이미 등록된 이미지 (건너뜀): "${newInfo}"` };
+    const position = idx + 1;
+    return {
+      action: "apply",
+      reason: `이미지 교체: "${infoList.join(", ")}" → "${newInfo}" (${position}번, 위치 무관하게 찾음)`,
+      simulate: (arr) => {
+        const copy = arr.slice();
+        copy[idx] = { id: "__pending__", alt: newInfo, url: null };
+        return copy;
+      },
+      execute: makeAddMediaExecutor({ addTitles: [newInfo], position, oldId: media[idx].id, cache }),
+    };
   }
-  if (!url) return { action: "error", reason: `미디어를 쇼피파이에서 찾지 못함: "${info}"` };
+
+  // 삽입/교체(순서 기준): 이미 같은 이미지가 등록되어 있으면 위치와 무관하게 건너뜀
+  if (!infoList.length) return { action: "error", reason: "정보(이미지 제목)를 입력해주세요" };
+  if (media.some((m) => infoList.includes(mediaDisplayName(m))))
+    return { action: "skip", reason: `이미 등록된 이미지 (건너뜀): "${infoList.join(", ")}"` };
+
+  const url = await findFileUrlByTitles(infoList, cache);
+  if (!url) return { action: "error", reason: `미디어를 쇼피파이에서 찾지 못함: "${infoList.join(", ")}"` };
 
   const position = Math.max(1, Math.min(media.length + (mode === "insert" ? 1 : 0), parseInt(op.order, 10) || 1));
   return {
     action: "apply",
-    reason: `이미지 ${mode === "insert" ? "삽입" : "교체"}: "${info}" (${position}번)`,
+    reason: `이미지 ${mode === "insert" ? "삽입" : "교체"}: "${infoList.join(", ")}" (${position}번)`,
     simulate: (arr) => {
       const copy = arr.slice();
-      const placeholder = { id: "__pending__", alt: info };
+      const placeholder = { id: "__pending__", alt: infoList[0], url: null };
       if (mode === "insert") copy.splice(position - 1, 0, placeholder);
       else copy[position - 1] = placeholder;
       return copy;
     },
-    execute: async (productId, arr) => {
-      const oldId = mode === "overwrite" ? (arr[position - 1] || {}).id || null : null;
-      const created = await shopifyGraphQL(PRODUCT_CREATE_MEDIA, {
-        productId,
-        media: [{ originalSource: url, mediaContentType: "IMAGE", alt: info }],
-      });
-      if (created.productCreateMedia.mediaUserErrors.length)
-        throw new Error(created.productCreateMedia.mediaUserErrors.map((e) => e.message).join(", "));
-      const newMediaId = created.productCreateMedia.media[0].id;
-
-      const reordered = await shopifyGraphQL(PRODUCT_REORDER_MEDIA, { id: productId, moves: [{ id: newMediaId, newPosition: String(position - 1) }] });
-      if (reordered.productReorderMedia.mediaUserErrors.length)
-        throw new Error(reordered.productReorderMedia.mediaUserErrors.map((e) => e.message).join(", "));
-
-      if (oldId) await shopifyGraphQL(PRODUCT_DELETE_MEDIA, { mediaIds: [oldId], productId });
-      return newMediaId;
-    },
+    execute: makeAddMediaExecutor({
+      addTitles: infoList,
+      position,
+      oldId: mode === "overwrite" ? (media[position - 1] || {}).id || null : null,
+      cache,
+    }),
   };
 }
 
@@ -201,7 +259,7 @@ async function applyMediaOps(product, mediaOps, cache) {
       media = plan.simulate(media);
       if (newId) {
         const idx = media.findIndex((m) => m.id === "__pending__");
-        if (idx !== -1) media[idx] = { id: newId, alt: media[idx].alt };
+        if (idx !== -1) media[idx] = { id: newId, alt: media[idx].alt, url: null };
       }
       results.push({ action: "apply", reason: plan.reason });
     } catch (err) {

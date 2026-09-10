@@ -26,7 +26,7 @@ function mapProductNode(node) {
     template: node.templateSuffix || "",
     url: node.onlineStorePreviewUrl,
     thumbnail: node.featuredImage ? node.featuredImage.url : null,
-    media: node.media.edges.map((m) => ({ id: m.node.id, alt: m.node.alt })),
+    media: node.media.edges.map((m) => ({ id: m.node.id, alt: m.node.alt, url: m.node.image ? m.node.image.url : null })),
   };
 }
 

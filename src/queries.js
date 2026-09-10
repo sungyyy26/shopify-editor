@@ -34,13 +34,14 @@ const PRODUCT_FIELDS = `
   onlineStorePreviewUrl
   featuredImage { url }
   media(first: 50) {
-    edges { node { id alt } }
+    edges { node { id alt ... on MediaImage { image { url } } } }
   }
 `;
 
+// 최근에 생성한 페이지가 먼저 나오도록 정렬
 const PRODUCT_SEARCH = `
   query SearchProducts($query: String!, $cursor: String) {
-    products(first: 250, query: $query, after: $cursor) {
+    products(first: 250, query: $query, after: $cursor, sortKey: CREATED_AT, reverse: true) {
       pageInfo { hasNextPage endCursor }
       edges { node { ${PRODUCT_FIELDS} } }
     }

@@ -193,12 +193,18 @@ document.getElementById("filterForm").addEventListener("submit", async (e) => {
   filterSubmitBtn.disabled = true;
   filterSubmitBtn.textContent = "검색 중...";
   try {
+    // Step 1에서 멈춘(후보조회됨) 이전 작업이 있다면 새 검색 시 자동으로 정리
+    const staleJobId = currentJobId && currentJobData && currentJobData.status === "후보조회됨" ? currentJobId : null;
     const job = await api("POST", "/api/jobs", { filter: buildFilterObj() });
+    if (staleJobId) {
+      try { await api("DELETE", "/api/jobs/" + staleJobId); } catch (err) { /* 무시 */ }
+    }
     currentJobId = job.id;
     currentJobData = job;
     step1Page = step2Page = step3Page = 1;
     step2Selected = new Set();
     step2InitedFor = null;
+    step2Anchor = null;
     setTabsEnabled(!!(job.candidates && job.candidates.length));
     renderStep1Results();
     renderStep2();
@@ -231,6 +237,17 @@ let currentJobData = null;
 let step1Page = 1, step2Page = 1, step3Page = 1;
 let step2Selected = new Set();
 let step2InitedFor = null;
+let step2Anchor = null; // { id, checked } - Shift+클릭 범위 선택의 기준점
+
+// Ctrl/Cmd+A: Step 2의 페이지 선택 화면이 보이는 동안, 현재 페이지에 보이는 항목 전체를 선택
+document.addEventListener("keydown", (e) => {
+  if (!((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a")) return;
+  if (activeStep !== 2 || !currentJobData || !currentJobData.edits || !currentJobData.candidates) return;
+  e.preventDefault();
+  const { pageItems } = paginate(currentJobData.candidates, step2Page, 12);
+  pageItems.forEach((p) => step2Selected.add(p.id));
+  renderStep2();
+});
 
 async function init() {
   loadPresets();
@@ -287,7 +304,7 @@ document.getElementById("step1NextBtn").addEventListener("click", () => setStep(
 // 미디어는 한 번에 여러 작업(추가/교체/삭제/이동)을 순서대로 큐에 담아 적용할 수 있다.
 // mediaOpDraft는 저장 전 편집 중인 행들의 상태(정보/순서/이동할 위치/방식)를 담는다.
 let mediaOpDraft = [];
-function newMediaOpRow() { return { info: "", order: "", moveTo: "", mode: null }; }
+function newMediaOpRow() { return { infoList: [], newInfo: "", order: "", moveTo: "", mode: null }; }
 
 function mediaOpRowTpl(row, idx) {
   return '<div class="media-row" data-idx="' + idx + '">'
@@ -296,16 +313,21 @@ function mediaOpRowTpl(row, idx) {
     + (mediaOpDraft.length > 1 ? '<button type="button" class="btn-secondary media-op-remove" data-idx="' + idx + '" style="padding:4px 12px;font-size:12px;">✕ 제거</button>' : "")
     + "</div>"
     + '<div class="media-grid">'
-    + '<label class="field" style="position:relative;"><span class="lbl">정보 (등록된 이미지 제목/대체 텍스트로 검색)</span><input type="text" id="e-m-info-' + idx + '" placeholder="예: reseller_thumbnail" autocomplete="off"><div class="ac-list" id="e-m-info-ac-' + idx + '" hidden></div></label>'
+    + '<label class="field" style="position:relative;"><span class="lbl">정보 (등록된 이미지 제목/대체 텍스트로 검색, 여러 개 가능)</span>'
+    + '<div class="chip-input-box" id="e-m-info-box-' + idx + '"><div class="chip-tags" id="e-m-info-chips-' + idx + '"></div>'
+    + '<input type="text" id="e-m-info-' + idx + '" placeholder="예: reseller_thumbnail (Enter로 추가)" autocomplete="off"></div>'
+    + '<div class="ac-list" id="e-m-info-ac-' + idx + '" hidden></div></label>'
     + '<label class="field"><span class="lbl">순서</span><input type="text" inputmode="numeric" id="e-m-order-' + idx + '" placeholder="예: 2"></label>'
     + '<label class="field"><span class="lbl">이동할 위치</span><input type="text" inputmode="numeric" id="e-m-moveto-' + idx + '" placeholder="예: 1" disabled></label>'
     + "</div>"
-    + '<p class="panel-hint" style="margin:-4px 0 0;">정보는 이동 모드에서 사용하지 않습니다. 삭제 모드에서 순서를 비워두면 위치와 무관하게 정보와 일치하는 이미지를 찾습니다.</p>'
+    + '<label class="field" style="position:relative;"><span class="lbl">변경할 이미지 (교체(제목 기준) 전용)</span><input type="text" id="e-m-newinfo-' + idx + '" placeholder="예: VIS.jpg" autocomplete="off" disabled><div class="ac-list" id="e-m-newinfo-ac-' + idx + '" hidden></div></label>'
+    + '<p class="panel-hint" style="margin:-4px 0 0;">정보는 이동 모드에서 사용하지 않으며, Enter를 눌러 여러 개를 추가할 수 있습니다 (같은 이미지가 여러 제목/파일명으로 등록된 경우 대비, 그 중 하나라도 일치하면 매칭). 삭제 모드에서 순서를 비워두면 위치와 무관하게 정보와 일치하는 이미지를 찾습니다. 교체(제목 기준) 모드는 순서 없이 "정보"에 입력한 제목을 상품 어디서든 찾아 "변경할 이미지"로 바꿉니다 (위치 유지).</p>'
     + '<div class="field"><span class="lbl">방식</span><div class="modewrap" id="editModeWrap-' + idx + '">'
     + '<label class="mode-box" data-val="insert"><input type="checkbox">추가 — 지정 순서에 끼워 넣고 이후 밀기</label>'
     + '<label class="mode-box" data-val="overwrite"><input type="checkbox">교체 — 지정 순서 이미지만 바꾸기</label>'
     + '<label class="mode-box" data-val="delete"><input type="checkbox">삭제 — 지정 순서(또는 일치하는) 이미지 제거</label>'
     + '<label class="mode-box" data-val="move"><input type="checkbox">이동 — 새 이미지 없이 "순서" 위치를 "이동할 위치"로 옮기기</label>'
+    + '<label class="mode-box" data-val="titleReplace"><input type="checkbox">교체(제목 기준) — 위치 무관하게 찾아서 교체</label>'
     + "</div></div></div>";
 }
 
@@ -317,14 +339,39 @@ function renderMediaOpsContainer() {
   wireMediaOpsContainer();
 }
 
+function renderInfoChips(idx) {
+  const row = mediaOpDraft[idx];
+  const box = document.getElementById("e-m-info-chips-" + idx);
+  if (!box || !row) return;
+  box.innerHTML = row.infoList
+    .map((v, i) => '<span class="info-chip">' + esc(v) + '<button type="button" class="chip-x" data-idx="' + idx + '" data-i="' + i + '">✕</button></span>')
+    .join("");
+  box.querySelectorAll(".chip-x").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      mediaOpDraft[idx].infoList.splice(Number(btn.dataset.i), 1);
+      renderInfoChips(idx);
+    });
+  });
+}
+function addInfoChip(idx, value) {
+  const v = (value || "").trim();
+  if (!v) return;
+  const row = mediaOpDraft[idx];
+  if (!row) return;
+  if (!row.infoList.includes(v)) row.infoList.push(v);
+  renderInfoChips(idx);
+}
+
 function syncMediaOpDraftFromDom() {
   mediaOpDraft.forEach((row, idx) => {
     const infoEl = document.getElementById("e-m-info-" + idx);
     const orderEl = document.getElementById("e-m-order-" + idx);
     const moveToEl = document.getElementById("e-m-moveto-" + idx);
-    if (infoEl) row.info = infoEl.value;
+    const newInfoEl = document.getElementById("e-m-newinfo-" + idx);
+    if (infoEl && infoEl.value.trim()) { addInfoChip(idx, infoEl.value); infoEl.value = ""; }
     if (orderEl) row.order = orderEl.value;
     if (moveToEl) row.moveTo = moveToEl.value;
+    if (newInfoEl) row.newInfo = newInfoEl.value.trim();
   });
 }
 
@@ -333,10 +380,39 @@ function wireMediaOpsContainer() {
     const infoEl = document.getElementById("e-m-info-" + idx);
     const orderEl = document.getElementById("e-m-order-" + idx);
     const moveToEl = document.getElementById("e-m-moveto-" + idx);
-    infoEl.value = row.info || "";
+    const newInfoEl = document.getElementById("e-m-newinfo-" + idx);
     orderEl.value = row.order || "";
     moveToEl.value = row.moveTo || "";
-    wireMediaAutocomplete(infoEl, document.getElementById("e-m-info-ac-" + idx));
+    newInfoEl.value = row.newInfo || "";
+    renderInfoChips(idx);
+
+    wireMediaAutocomplete(infoEl, document.getElementById("e-m-info-ac-" + idx), (name) => {
+      addInfoChip(idx, name);
+      infoEl.value = "";
+    });
+    infoEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addInfoChip(idx, infoEl.value);
+        infoEl.value = "";
+      }
+    });
+
+    wireMediaAutocomplete(newInfoEl, document.getElementById("e-m-newinfo-ac-" + idx), (name) => {
+      newInfoEl.value = name;
+      row.newInfo = name;
+    });
+    newInfoEl.addEventListener("input", () => { row.newInfo = newInfoEl.value; });
+
+    function applyModeDisabled() {
+      moveToEl.disabled = row.mode !== "move";
+      newInfoEl.disabled = row.mode !== "titleReplace";
+      infoEl.disabled = row.mode === "move";
+      orderEl.disabled = row.mode === "titleReplace";
+      if (moveToEl.disabled) moveToEl.value = "";
+      if (newInfoEl.disabled) { newInfoEl.value = ""; row.newInfo = ""; }
+      if (orderEl.disabled) { orderEl.value = ""; row.order = ""; }
+    }
 
     const modeBoxes = [...document.getElementById("editModeWrap-" + idx).querySelectorAll(".mode-box")];
     modeBoxes.forEach((box) => {
@@ -347,12 +423,10 @@ function wireMediaOpsContainer() {
         modeBoxes.forEach((b) => { b.classList.remove("on"); b.querySelector("input").checked = false; });
         row.mode = turningOn ? box.dataset.val : null;
         if (turningOn) { box.classList.add("on"); box.querySelector("input").checked = true; }
-        // "이동" 모드를 선택했을 때만 "이동할 위치" 입력을 활성화
-        moveToEl.disabled = row.mode !== "move";
-        if (moveToEl.disabled) moveToEl.value = "";
+        applyModeDisabled();
       });
     });
-    moveToEl.disabled = row.mode !== "move";
+    applyModeDisabled();
   });
 
   el_qsa(".media-op-remove").forEach((btn) => {
@@ -415,15 +489,18 @@ function renderStep2() {
     + '<hr class="divider">';
 
   const c = currentJobData.candidates;
-  if (step2InitedFor !== currentJobId) { step2Selected = new Set(c.map((p) => p.id)); step2InitedFor = currentJobId; }
+  if (step2InitedFor !== currentJobId) { step2Selected = new Set(c.map((p) => p.id)); step2InitedFor = currentJobId; step2Anchor = null; }
   const allPicked = c.every((p) => step2Selected.has(p.id));
   const { pageItems, page, totalPages } = paginate(c, step2Page, 12);
+  const pagePicked = pageItems.length && pageItems.every((p) => step2Selected.has(p.id));
 
   html += '<div class="results-head"><h3>적용할 페이지 선택</h3>'
-    + '<div style="display:flex;align-items:center;gap:10px;">'
+    + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
     + '<span class="count-badge">' + step2Selected.size + " / " + c.length + "건 선택</span>"
+    + '<button type="button" class="select-all" id="step2SelectPage"' + (pagePicked ? " disabled" : "") + '>현재 페이지 전체 선택</button>'
     + '<button type="button" class="select-all" id="step2SelectAll">' + (allPicked ? "전체 해제" : "전체 선택") + "</button>"
     + "</div></div>"
+    + '<p class="panel-hint" style="margin:-4px 0 0;">Ctrl(⌘)+A로 현재 페이지 전체 선택, Shift+클릭으로 범위 선택/해제할 수 있습니다.</p>'
     + '<div class="results-grid">' + pageItems.map((p) => candidateCard(p, true, step2Selected.has(p.id))).join("") + "</div>"
     + renderPager(page, totalPages, "step2-pager")
     + '<div class="actions">'
@@ -438,12 +515,28 @@ function renderStep2() {
   });
   document.getElementById("step2SelectAll").addEventListener("click", () => {
     if (allPicked) step2Selected.clear(); else c.forEach((p) => step2Selected.add(p.id));
+    step2Anchor = null;
+    renderStep2();
+  });
+  document.getElementById("step2SelectPage").addEventListener("click", () => {
+    pageItems.forEach((p) => step2Selected.add(p.id));
     renderStep2();
   });
   el.querySelectorAll(".result-card.selectable").forEach((card) => {
-    card.addEventListener("click", () => {
+    card.addEventListener("click", (ev) => {
+      if (ev.shiftKey) window.getSelection().removeAllRanges();
       const id = card.dataset.id;
-      step2Selected.has(id) ? step2Selected.delete(id) : step2Selected.add(id);
+      const pageIds = pageItems.map((p) => p.id);
+      if (ev.shiftKey && step2Anchor && pageIds.includes(step2Anchor.id)) {
+        const lo = Math.min(pageIds.indexOf(step2Anchor.id), pageIds.indexOf(id));
+        const hi = Math.max(pageIds.indexOf(step2Anchor.id), pageIds.indexOf(id));
+        for (let i = lo; i <= hi; i++) {
+          if (step2Anchor.checked) step2Selected.add(pageIds[i]); else step2Selected.delete(pageIds[i]);
+        }
+      } else {
+        step2Selected.has(id) ? step2Selected.delete(id) : step2Selected.add(id);
+        step2Anchor = { id, checked: step2Selected.has(id) };
+      }
       renderStep2();
     });
   });
@@ -454,13 +547,14 @@ function renderStep2() {
   document.getElementById("step2Confirm").addEventListener("click", confirmStep2);
 }
 
-function modeLabelMedia(m) { return { insert: "추가", overwrite: "교체", delete: "삭제", move: "이동" }[m] || "-"; }
+function modeLabelMedia(m) { return { insert: "추가", overwrite: "교체", delete: "삭제", move: "이동", titleReplace: "교체(제목기준)" }[m] || "-"; }
 function mediaOpsSummaryText(ops) {
   return ops.map((op, i) => (i + 1) + ". " + mediaSummaryText(op)).join(" / ");
 }
 function mediaSummaryText(m) {
   if (m.mode === "move") return (m.order || "-") + "번 → " + (m.moveTo || "-") + "번 · 이동";
-  return (m.info || "") + " · " + (m.order || "-") + "번 · " + modeLabelMedia(m.mode);
+  if (m.mode === "titleReplace") return '"' + (m.infoList || []).join(", ") + '" → "' + (m.newInfo || "") + '" · 교체(제목기준)';
+  return '"' + (m.infoList || []).join(", ") + '" · ' + (m.order || "-") + "번 · " + modeLabelMedia(m.mode);
 }
 function modeLabelTags(m) { return { add: "추가", replace: "교체", remove: "삭제" }[m] || "-"; }
 
@@ -477,7 +571,7 @@ function wireModeWrap(wrapEl) {
   return () => { const on = modeBoxes.find((b) => b.classList.contains("on")); return on ? on.dataset.val : null; };
 }
 
-function wireMediaAutocomplete(input, listEl) {
+function wireMediaAutocomplete(input, listEl, onSelect) {
   let debounceTimer;
   input.addEventListener("input", () => {
     clearTimeout(debounceTimer);
@@ -490,16 +584,16 @@ function wireMediaAutocomplete(input, listEl) {
         listEl.innerHTML = files
           .map(
             (f) =>
-              '<div class="ac-item" data-alt="' + esc(f.alt || "") + '">'
+              '<div class="ac-item" data-name="' + esc(f.displayName || "") + '">'
               + (f.url ? '<img src="' + esc(f.url) + '" class="ac-thumb">' : '<div class="ac-thumb"></div>')
-              + "<span>" + esc(f.alt || "(제목 없음)") + "</span></div>"
+              + "<span>" + esc(f.displayName || "(제목 없음)") + "</span></div>"
           )
           .join("");
         listEl.hidden = false;
         listEl.querySelectorAll(".ac-item").forEach((item) => {
           item.addEventListener("mousedown", (e) => {
             e.preventDefault();
-            input.value = item.dataset.alt;
+            onSelect(item.dataset.name);
             listEl.hidden = true;
             listEl.innerHTML = "";
           });
@@ -527,16 +621,20 @@ function wireEditForm() {
 
     const mediaOps = [];
     for (const row of mediaOpDraft) {
-      const info = (row.info || "").trim();
-      const hasAnything = row.mode || info || row.order || row.moveTo;
+      const infoList = row.infoList.slice();
+      const hasAnything = row.mode || infoList.length || row.order || row.moveTo || row.newInfo;
       if (!hasAnything) continue; // 완전히 빈 행은 무시
-      if (!row.mode) { showToast("미디어 작업의 방식(추가/교체/삭제/이동)을 선택하세요."); return; }
+      if (!row.mode) { showToast("미디어 작업의 방식(추가/교체/삭제/이동/교체(제목기준))을 선택하세요."); return; }
       if (row.mode === "move") {
         if (!row.order || !row.moveTo) { showToast("이동 모드에서는 순서와 이동할 위치를 모두 입력하세요."); return; }
         mediaOps.push({ order: row.order, moveTo: row.moveTo, mode: "move" });
+      } else if (row.mode === "titleReplace") {
+        if (!infoList.length) { showToast("교체(제목 기준) 모드에서는 기존 이미지 제목을 1개 이상 입력하세요."); return; }
+        if (!row.newInfo) { showToast("교체(제목 기준) 모드에서는 변경할 이미지를 입력하세요."); return; }
+        mediaOps.push({ infoList, newInfo: row.newInfo, mode: "titleReplace" });
       } else {
-        if (!info) { showToast("미디어 작업에 정보(이미지 제목)를 입력하세요."); return; }
-        mediaOps.push({ info, order: row.order || null, mode: row.mode });
+        if (!infoList.length) { showToast("미디어 작업에 정보(이미지 제목)를 1개 이상 입력하세요."); return; }
+        mediaOps.push({ infoList, order: row.order || null, mode: row.mode });
       }
     }
     if (mediaOps.length) edits.mediaOps = mediaOps;
@@ -639,6 +737,19 @@ function renderTobe(e, preview) {
     + (errCount ? '<div class="tobe-stat"><b style="color:var(--error)">' + errCount + "</b><span>오류</span></div>" : "")
     + "</div>";
 
+  // 전부 적용이면 적용 예시 1개, 적용/건너뜀이 섞여 있으면 각각 1개씩, 전부 건너뜀이면 건너뜀 예시 1개를 리스트 위에 보여준다.
+  const applyExample = items.find((i) => i.action === "apply");
+  const skipExample = items.find((i) => i.action === "skip");
+  let exampleHtml = "";
+  if (applyCount && skipCount) {
+    exampleHtml = tobeExampleBlock("적용 예시", applyExample) + tobeExampleBlock("건너뜀 예시", skipExample);
+  } else if (applyCount && !skipCount) {
+    exampleHtml = tobeExampleBlock("적용 예시", applyExample);
+  } else if (skipCount && !applyCount) {
+    exampleHtml = tobeExampleBlock("건너뜀 예시", skipExample);
+  }
+  if (exampleHtml) html += '<div class="tobe-examples">' + exampleHtml + "</div>";
+
   const { pageItems, page, totalPages } = paginate(items, step3Page, 15);
   html += '<div id="previewTableWrap"><div class="item-table-wrap"><table class="item-table">'
     + "<thead><tr><th>제목</th><th>핸들</th><th>결과</th><th>사유</th></tr></thead><tbody>"
@@ -654,6 +765,15 @@ function renderTobe(e, preview) {
   return html + "</div>";
 }
 function actionLabel(a) { return { apply: "적용", skip: "건너뜀", error: "오류" }[a] || a; }
+function tobeExampleBlock(label, item) {
+  if (!item) return "";
+  return '<div class="tobe-example item-' + esc(item.action) + '">'
+    + '<span class="tobe-example-label">' + esc(label) + "</span>"
+    + '<span class="tobe-example-title">' + esc(item.title || "") + "</span>"
+    + "<code>" + esc(item.handle || "") + "</code>"
+    + (item.reason ? '<span class="tobe-example-reason">' + esc(item.reason) + "</span>" : "")
+    + "</div>";
+}
 
 async function confirmStep3() {
   const btn = document.getElementById("step3Confirm");
