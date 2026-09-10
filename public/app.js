@@ -284,19 +284,90 @@ function renderStep1Results() {
 document.getElementById("step1NextBtn").addEventListener("click", () => setStep(2));
 
 /* ---- Step 2: 수정사항 입력 + 페이지 선택 ---- */
-const mediaModeTpl = () =>
-  '<div class="media-row"><span class="lbl">미디어</span>'
-  + '<div class="media-grid">'
-  + '<label class="field" style="position:relative;"><span class="lbl">정보 (등록된 이미지 제목으로 검색)</span><input type="text" id="e-m-info" placeholder="예: reseller_thumbnail (이동 모드에서는 사용 안 함)" autocomplete="off"><div class="ac-list" id="e-m-info-ac" hidden></div></label>'
-  + '<label class="field"><span class="lbl">순서</span><input type="text" inputmode="numeric" id="e-m-order" placeholder="2"></label>'
-  + '<label class="field"><span class="lbl">이동할 위치</span><input type="text" inputmode="numeric" id="e-m-moveto" placeholder="1"></label>'
-  + "</div>"
-  + '<div class="field"><span class="lbl">방식</span><div class="modewrap" id="editModeWrap">'
-  + '<label class="mode-box" data-val="insert"><input type="checkbox">추가 — 지정 순서에 끼워 넣고 이후 밀기</label>'
-  + '<label class="mode-box" data-val="overwrite"><input type="checkbox">교체 — 지정 순서 이미지만 바꾸기</label>'
-  + '<label class="mode-box" data-val="delete"><input type="checkbox">삭제 — 지정 순서(또는 일치하는) 이미지 제거</label>'
-  + '<label class="mode-box" data-val="move"><input type="checkbox">이동 — 새 이미지 없이 "순서" 위치를 "이동할 위치"로 옮기기</label>'
-  + "</div></div></div>";
+// 미디어는 한 번에 여러 작업(추가/교체/삭제/이동)을 순서대로 큐에 담아 적용할 수 있다.
+// mediaOpDraft는 저장 전 편집 중인 행들의 상태(정보/순서/이동할 위치/방식)를 담는다.
+let mediaOpDraft = [];
+function newMediaOpRow() { return { info: "", order: "", moveTo: "", mode: null }; }
+
+function mediaOpRowTpl(row, idx) {
+  return '<div class="media-row" data-idx="' + idx + '">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;">'
+    + '<span class="lbl">미디어 작업 ' + (idx + 1) + "</span>"
+    + (mediaOpDraft.length > 1 ? '<button type="button" class="btn-secondary media-op-remove" data-idx="' + idx + '" style="padding:4px 12px;font-size:12px;">✕ 제거</button>' : "")
+    + "</div>"
+    + '<div class="media-grid">'
+    + '<label class="field" style="position:relative;"><span class="lbl">정보 (등록된 이미지 제목으로 검색)</span><input type="text" id="e-m-info-' + idx + '" placeholder="예: reseller_thumbnail (이동 모드에서는 사용 안 함)" autocomplete="off"><div class="ac-list" id="e-m-info-ac-' + idx + '" hidden></div></label>'
+    + '<label class="field"><span class="lbl">순서</span><input type="text" inputmode="numeric" id="e-m-order-' + idx + '" placeholder="2"></label>'
+    + '<label class="field"><span class="lbl">이동할 위치</span><input type="text" inputmode="numeric" id="e-m-moveto-' + idx + '" placeholder="1" disabled></label>'
+    + "</div>"
+    + '<div class="field"><span class="lbl">방식</span><div class="modewrap" id="editModeWrap-' + idx + '">'
+    + '<label class="mode-box" data-val="insert"><input type="checkbox">추가 — 지정 순서에 끼워 넣고 이후 밀기</label>'
+    + '<label class="mode-box" data-val="overwrite"><input type="checkbox">교체 — 지정 순서 이미지만 바꾸기</label>'
+    + '<label class="mode-box" data-val="delete"><input type="checkbox">삭제 — 지정 순서(또는 일치하는) 이미지 제거</label>'
+    + '<label class="mode-box" data-val="move"><input type="checkbox">이동 — 새 이미지 없이 "순서" 위치를 "이동할 위치"로 옮기기</label>'
+    + "</div></div></div>";
+}
+
+function renderMediaOpsContainer() {
+  const el = document.getElementById("mediaOpsContainer");
+  if (!el) return;
+  el.innerHTML = mediaOpDraft.map((row, idx) => mediaOpRowTpl(row, idx)).join("")
+    + '<button type="button" class="btn-secondary" id="addMediaOpBtn" style="align-self:flex-start;">+ 미디어 작업 추가</button>';
+  wireMediaOpsContainer();
+}
+
+function syncMediaOpDraftFromDom() {
+  mediaOpDraft.forEach((row, idx) => {
+    const infoEl = document.getElementById("e-m-info-" + idx);
+    const orderEl = document.getElementById("e-m-order-" + idx);
+    const moveToEl = document.getElementById("e-m-moveto-" + idx);
+    if (infoEl) row.info = infoEl.value;
+    if (orderEl) row.order = orderEl.value;
+    if (moveToEl) row.moveTo = moveToEl.value;
+  });
+}
+
+function wireMediaOpsContainer() {
+  mediaOpDraft.forEach((row, idx) => {
+    const infoEl = document.getElementById("e-m-info-" + idx);
+    const orderEl = document.getElementById("e-m-order-" + idx);
+    const moveToEl = document.getElementById("e-m-moveto-" + idx);
+    infoEl.value = row.info || "";
+    orderEl.value = row.order || "";
+    moveToEl.value = row.moveTo || "";
+    wireMediaAutocomplete(infoEl, document.getElementById("e-m-info-ac-" + idx));
+
+    const modeBoxes = [...document.getElementById("editModeWrap-" + idx).querySelectorAll(".mode-box")];
+    modeBoxes.forEach((box) => {
+      if (box.dataset.val === row.mode) { box.classList.add("on"); box.querySelector("input").checked = true; }
+      box.addEventListener("click", (e) => {
+        e.preventDefault();
+        const turningOn = !box.classList.contains("on");
+        modeBoxes.forEach((b) => { b.classList.remove("on"); b.querySelector("input").checked = false; });
+        row.mode = turningOn ? box.dataset.val : null;
+        if (turningOn) { box.classList.add("on"); box.querySelector("input").checked = true; }
+        // "이동" 모드를 선택했을 때만 "이동할 위치" 입력을 활성화
+        moveToEl.disabled = row.mode !== "move";
+        if (moveToEl.disabled) moveToEl.value = "";
+      });
+    });
+    moveToEl.disabled = row.mode !== "move";
+  });
+
+  el_qsa(".media-op-remove").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      syncMediaOpDraftFromDom();
+      mediaOpDraft.splice(Number(btn.dataset.idx), 1);
+      renderMediaOpsContainer();
+    });
+  });
+  document.getElementById("addMediaOpBtn").addEventListener("click", () => {
+    syncMediaOpDraftFromDom();
+    mediaOpDraft.push(newMediaOpRow());
+    renderMediaOpsContainer();
+  });
+}
+function el_qsa(sel) { return [...document.querySelectorAll(sel)]; }
 
 const tagModeTpl = () =>
   '<div class="media-row"><span class="lbl">태그</span>'
@@ -315,16 +386,18 @@ function renderStep2() {
   let html = '<div class="panel-head"><span class="panel-num">02</span><span class="panel-title">수정사항 · 페이지 선택</span></div>';
 
   if (!editsSaved) {
-    html += '<p class="panel-hint">채울 항목만 적용됩니다.</p>'
+    mediaOpDraft = [newMediaOpRow()];
+    html += '<p class="panel-hint">채울 항목만 적용됩니다. 미디어는 여러 작업을 순서대로 추가해 한 번에 적용할 수 있습니다 (각 작업은 이전 작업이 이미 반영된 상태를 기준으로 계산됩니다).</p>'
       + '<form id="editForm">'
       + '<label class="field"><span class="lbl">제목</span><input type="text" id="e-title" placeholder="새 제목"></label>'
       + '<label class="field"><span class="lbl">설명 (HTML)</span><textarea id="e-desc" placeholder="&lt;p&gt;설명 HTML&lt;/p&gt;"></textarea></label>'
-      + mediaModeTpl()
+      + '<div id="mediaOpsContainer"></div>'
       + tagModeTpl()
       + '<div class="actions"><span class="hint-req">수정사항을 1개 이상 입력하세요.</span>'
       + '<button type="submit" class="submit" id="editSubmitBtn">수정사항 저장</button></div>'
       + "</form>";
     el.innerHTML = html;
+    renderMediaOpsContainer();
     wireEditForm();
     return;
   }
@@ -333,7 +406,7 @@ function renderStep2() {
   const editRows = [
     ["제목", e.title || '<span class="tobe-nochange">(변경 없음)</span>'],
     ["설명", e.description ? esc(e.description.length) + "자 HTML" : '<span class="tobe-nochange">(변경 없음)</span>'],
-    ["미디어", e.media ? esc(mediaSummaryText(e.media)) : '<span class="tobe-nochange">(변경 없음)</span>'],
+    ["미디어", e.mediaOps && e.mediaOps.length ? esc(mediaOpsSummaryText(e.mediaOps)) : '<span class="tobe-nochange">(변경 없음)</span>'],
     ["태그", e.tags ? esc(e.tags.value) + " · " + esc(modeLabelTags(e.tags.mode)) : '<span class="tobe-nochange">(변경 없음)</span>'],
   ];
   html += '<div class="edit-summary">' + editRows.map((r) => '<div class="edit-summary-row"><dt>' + esc(r[0]) + "</dt><dd>" + r[1] + "</dd></div>").join("") + "</div>"
@@ -381,6 +454,9 @@ function renderStep2() {
 }
 
 function modeLabelMedia(m) { return { insert: "추가", overwrite: "교체", delete: "삭제", move: "이동" }[m] || "-"; }
+function mediaOpsSummaryText(ops) {
+  return ops.map((op, i) => (i + 1) + ". " + mediaSummaryText(op)).join(" / ");
+}
 function mediaSummaryText(m) {
   if (m.mode === "move") return (m.order || "-") + "번 → " + (m.moveTo || "-") + "번 · 이동";
   return (m.info || "") + " · " + (m.order || "-") + "번 · " + modeLabelMedia(m.mode);
@@ -437,33 +513,35 @@ function wireMediaAutocomplete(input, listEl) {
 }
 
 function wireEditForm() {
-  wireMediaAutocomplete(document.getElementById("e-m-info"), document.getElementById("e-m-info-ac"));
-  const getMediaMode = wireModeWrap(document.getElementById("editModeWrap"));
   const getTagMode = wireModeWrap(document.getElementById("editTagModeWrap"));
   document.getElementById("editForm").addEventListener("submit", async (e) => {
     e.preventDefault();
+    syncMediaOpDraftFromDom();
     const edits = {};
     const title = document.getElementById("e-title").value.trim();
     const desc = document.getElementById("e-desc").value.trim();
-    const info = document.getElementById("e-m-info").value.trim();
-    const order = document.getElementById("e-m-order").value.trim();
-    const moveTo = document.getElementById("e-m-moveto").value.trim();
     const tagValue = document.getElementById("e-t-value").value.trim();
-    const mediaMode = getMediaMode();
     if (title) edits.title = title;
     if (desc) edits.description = desc;
-    if (mediaMode === "move") {
-      if (order || moveTo) edits.media = { order: order || null, moveTo: moveTo || null, mode: "move" };
-    } else if (info) {
-      edits.media = { info, order: order || null, mode: mediaMode };
+
+    const mediaOps = [];
+    for (const row of mediaOpDraft) {
+      const info = (row.info || "").trim();
+      const hasAnything = row.mode || info || row.order || row.moveTo;
+      if (!hasAnything) continue; // 완전히 빈 행은 무시
+      if (!row.mode) { showToast("미디어 작업의 방식(추가/교체/삭제/이동)을 선택하세요."); return; }
+      if (row.mode === "move") {
+        if (!row.order || !row.moveTo) { showToast("이동 모드에서는 순서와 이동할 위치를 모두 입력하세요."); return; }
+        mediaOps.push({ order: row.order, moveTo: row.moveTo, mode: "move" });
+      } else {
+        if (!info) { showToast("미디어 작업에 정보(이미지 제목)를 입력하세요."); return; }
+        mediaOps.push({ info, order: row.order || null, mode: row.mode });
+      }
     }
+    if (mediaOps.length) edits.mediaOps = mediaOps;
+
     if (tagValue) edits.tags = { value: tagValue, mode: getTagMode() };
     if (!Object.keys(edits).length) { showToast("수정사항을 1개 이상 입력하세요."); return; }
-    if (edits.media && !edits.media.mode) { showToast("미디어 방식(추가/교체/삭제/이동)을 선택하세요."); return; }
-    if (edits.media && edits.media.mode === "move" && (!edits.media.order || !edits.media.moveTo)) {
-      showToast("이동 모드에서는 순서와 이동할 위치를 모두 입력하세요.");
-      return;
-    }
     if (edits.tags && !edits.tags.mode) { showToast("태그 방식(추가/교체/삭제)을 선택하세요."); return; }
     const btn = document.getElementById("editSubmitBtn");
     btn.disabled = true;
@@ -539,7 +617,7 @@ function renderTobe(e, preview) {
   const rows = [
     ["제목", e.title ? esc(e.title) : '<span class="tobe-nochange">(변경 없음)</span>'],
     ["설명", e.description ? "새 설명 HTML 적용됨 (" + e.description.length + "자)" : '<span class="tobe-nochange">(변경 없음)</span>'],
-    ["미디어", e.media ? esc(mediaSummaryText(e.media)) : '<span class="tobe-nochange">(변경 없음)</span>'],
+    ["미디어", e.mediaOps && e.mediaOps.length ? esc(mediaOpsSummaryText(e.mediaOps)) : '<span class="tobe-nochange">(변경 없음)</span>'],
     ["태그", e.tags ? esc(e.tags.value) + " · " + esc(modeLabelTags(e.tags.mode)) : '<span class="tobe-nochange">(변경 없음)</span>'],
   ];
   let html = '<div class="tobe-block"><p class="tobe-head">적용 후 TO-BE</p>'
@@ -656,7 +734,7 @@ function renderJobs(jobs) {
     const editRows = [
       e.title ? ["제목", e.title] : null,
       e.description ? ["설명", e.description.length > 40 ? e.description.slice(0, 40) + "…" : e.description] : null,
-      e.media ? ["미디어", mediaSummaryText(e.media)] : null,
+      e.mediaOps && e.mediaOps.length ? ["미디어", mediaOpsSummaryText(e.mediaOps)] : null,
       e.tags ? ["태그", e.tags.value + (e.tags.mode ? " · " + modeLabelTags(e.tags.mode) : "")] : null,
     ].filter(Boolean);
     const status = job.status || "후보조회됨";

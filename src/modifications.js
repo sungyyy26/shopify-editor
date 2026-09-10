@@ -44,63 +44,76 @@ function planTags(product, tagsMod) {
   return { action: "apply", reason: `${label}: ${values.join(", ")}`, newTags };
 }
 
-// 새 이미지 등록 없이 기존 이미지 순서만 바꾼다 (정보/파일 조회 불필요, 상품에 이미
-// 저장되어 있는 media 목록 안에서만 위치를 이동).
-function planMediaMove(product, media) {
-  const from = parseInt(media.order, 10);
-  const to = parseInt(media.moveTo, 10);
-  if (!from || !to) return { action: "error", reason: "이동 순서 값이 올바르지 않음" };
-  const fromItem = product.media[from - 1];
-  if (!fromItem) return { action: "skip", reason: `${from}번 위치에 이미지가 없음` };
-  if (to < 1 || to > product.media.length)
-    return { action: "skip", reason: `${to}번은 잘못된 위치 (전체 ${product.media.length}개)` };
-  if (from === to) return { action: "skip", reason: `이미 ${to}번 위치 (변경 없음)` };
-  return {
-    action: "apply",
-    reason: `이미지 순서 변경: ${from}번 → ${to}번`,
-    run: () =>
-      shopifyGraphQL(PRODUCT_REORDER_MEDIA, { id: product.id, moves: [{ id: fromItem.id, newPosition: String(to - 1) }] }),
-  };
-}
+// 미디어 작업 하나가 "지금 이 순간의" media 배열([{id, alt}, ...])을 기준으로 무엇을 할지
+// 계산한다. 실제 mutation은 절대 호출하지 않는 순수 계산 + 읽기 전용 파일 조회만 수행하며,
+// 성공 시 simulate(현재 목록을 반영한 다음 목록 계산)와 execute(실제 mutation 실행,
+// 새로 만들어진 미디어가 있으면 그 id를 반환) 콜백을 함께 반환한다.
+async function deriveMediaOpPlan(media, op, cache) {
+  if (!op || !op.mode) return null;
+  const mode = op.mode;
+  const info = (op.info || "").trim();
 
-// 미디어 정보(제목)가 이미 등록되어 있는지, 삭제 대상이 존재하는지 등을 판단하고
-// 실제 반영이 필요할 때 실행할 run()을 함께 반환. cache는 같은 실행 안에서 동일한
-// 미디어 제목을 여러 상품에 반복 조회하지 않도록 하는 findFileUrlByTitle 결과 캐시.
-async function planMedia(product, media, cache) {
-  if (!media || !media.mode) return null;
-  if (media.mode === "move") return planMediaMove(product, media);
-  if (!media.info || !media.info.trim()) return null;
-  const info = media.info.trim();
-  const mode = media.mode;
-  const existing = product.media.find((m) => m.alt === info);
+  if (mode === "move") {
+    const from = parseInt(op.order, 10);
+    const to = parseInt(op.moveTo, 10);
+    if (!from || !to) return { action: "error", reason: "이동 순서 값이 올바르지 않음" };
+    if (!media[from - 1]) return { action: "skip", reason: `${from}번 위치에 이미지가 없음` };
+    if (to < 1 || to > media.length) return { action: "skip", reason: `${to}번은 잘못된 위치 (전체 ${media.length}개)` };
+    if (from === to) return { action: "skip", reason: `이미 ${to}번 위치 (변경 없음)` };
+    return {
+      action: "apply",
+      reason: `이미지 순서 변경: ${from}번 → ${to}번`,
+      simulate: (arr) => {
+        const copy = arr.slice();
+        const [item] = copy.splice(from - 1, 1);
+        copy.splice(to - 1, 0, item);
+        return copy;
+      },
+      execute: async (productId, arr) => {
+        const item = arr[from - 1];
+        const res = await shopifyGraphQL(PRODUCT_REORDER_MEDIA, { id: productId, moves: [{ id: item.id, newPosition: String(to - 1) }] });
+        if (res.productReorderMedia.mediaUserErrors.length)
+          throw new Error(res.productReorderMedia.mediaUserErrors.map((e) => e.message).join(", "));
+      },
+    };
+  }
 
   if (mode === "delete") {
-    let target;
-    if (media.order) {
+    let targetIndex = -1;
+    if (op.order) {
       // 순서가 주어지면 "그 자리의 이미지 제목이 실제로 일치하는지"까지 확인해
       // 엉뚱한 위치의 다른 이미지를 잘못 지우는 일을 막는다.
-      const position = parseInt(media.order, 10);
-      const atPosition = product.media[position - 1];
+      const position = parseInt(op.order, 10);
+      const atPosition = media[position - 1];
       if (!atPosition) return { action: "skip", reason: `${position}번 위치에 이미지가 없음` };
-      if (atPosition.alt !== info)
-        return {
-          action: "skip",
-          reason: `${position}번 위치의 이미지 제목이 다름 (실제: "${atPosition.alt || "제목 없음"}") - 안전을 위해 건너뜀`,
-        };
-      target = atPosition;
+      if (info && atPosition.alt !== info)
+        return { action: "skip", reason: `${position}번 위치의 이미지 제목이 다름 (실제: "${atPosition.alt || "제목 없음"}") - 안전을 위해 건너뜀` };
+      targetIndex = position - 1;
+    } else if (info) {
+      targetIndex = media.findIndex((m) => m.alt === info);
+      if (targetIndex === -1) return { action: "skip", reason: `삭제할 이미지를 찾지 못함: "${info}"` };
     } else {
-      target = existing;
-      if (!target) return { action: "skip", reason: `삭제할 이미지를 찾지 못함: "${info}"` };
+      return { action: "error", reason: "삭제할 이미지를 지정해주세요 (정보 또는 순서)" };
     }
     return {
       action: "apply",
-      reason: `이미지 삭제: "${info}" (${media.order ? media.order + "번" : "위치 무관"})`,
-      run: () => shopifyGraphQL(PRODUCT_DELETE_MEDIA, { mediaIds: [target.id], productId: product.id }),
+      reason: `이미지 삭제: ${op.order ? op.order + "번" : `"${info}"`}`,
+      simulate: (arr) => {
+        const copy = arr.slice();
+        copy.splice(targetIndex, 1);
+        return copy;
+      },
+      execute: async (productId, arr) => {
+        const res = await shopifyGraphQL(PRODUCT_DELETE_MEDIA, { mediaIds: [arr[targetIndex].id], productId });
+        if (res.productDeleteMedia.mediaUserErrors.length)
+          throw new Error(res.productDeleteMedia.mediaUserErrors.map((e) => e.message).join(", "));
+      },
     };
   }
 
   // 삽입/교체: 이미 같은 제목의 이미지가 등록되어 있으면 위치와 무관하게 건너뜀
-  if (existing) return { action: "skip", reason: `이미 등록된 이미지 (건너뜀): "${info}"` };
+  if (!info) return { action: "error", reason: "정보(이미지 제목)를 입력해주세요" };
+  if (media.some((m) => m.alt === info)) return { action: "skip", reason: `이미 등록된 이미지 (건너뜀): "${info}"` };
 
   let url = cache.get(info);
   if (url === undefined) {
@@ -109,32 +122,76 @@ async function planMedia(product, media, cache) {
   }
   if (!url) return { action: "error", reason: `미디어를 쇼피파이에서 찾지 못함: "${info}"` };
 
-  const position = Math.max(1, parseInt(media.order, 10) || 1);
+  const position = Math.max(1, Math.min(media.length + (mode === "insert" ? 1 : 0), parseInt(op.order, 10) || 1));
   return {
     action: "apply",
     reason: `이미지 ${mode === "insert" ? "삽입" : "교체"}: "${info}" (${position}번)`,
-    run: async () => {
-      const oldMediaIdAtPosition = mode === "overwrite" ? (product.media[position - 1] || {}).id || null : null;
+    simulate: (arr) => {
+      const copy = arr.slice();
+      const placeholder = { id: "__pending__", alt: info };
+      if (mode === "insert") copy.splice(position - 1, 0, placeholder);
+      else copy[position - 1] = placeholder;
+      return copy;
+    },
+    execute: async (productId, arr) => {
+      const oldId = mode === "overwrite" ? (arr[position - 1] || {}).id || null : null;
       const created = await shopifyGraphQL(PRODUCT_CREATE_MEDIA, {
-        productId: product.id,
+        productId,
         media: [{ originalSource: url, mediaContentType: "IMAGE", alt: info }],
       });
       if (created.productCreateMedia.mediaUserErrors.length)
         throw new Error(created.productCreateMedia.mediaUserErrors.map((e) => e.message).join(", "));
       const newMediaId = created.productCreateMedia.media[0].id;
 
-      const reordered = await shopifyGraphQL(PRODUCT_REORDER_MEDIA, {
-        id: product.id,
-        moves: [{ id: newMediaId, newPosition: String(position - 1) }],
-      });
+      const reordered = await shopifyGraphQL(PRODUCT_REORDER_MEDIA, { id: productId, moves: [{ id: newMediaId, newPosition: String(position - 1) }] });
       if (reordered.productReorderMedia.mediaUserErrors.length)
         throw new Error(reordered.productReorderMedia.mediaUserErrors.map((e) => e.message).join(", "));
 
-      if (oldMediaIdAtPosition) {
-        await shopifyGraphQL(PRODUCT_DELETE_MEDIA, { mediaIds: [oldMediaIdAtPosition], productId: product.id });
-      }
+      if (oldId) await shopifyGraphQL(PRODUCT_DELETE_MEDIA, { mediaIds: [oldId], productId });
+      return newMediaId;
     },
   };
+}
+
+// 여러 미디어 작업을 입력한 순서대로 미리 계산 (실제 mutation 없음). 각 작업은 이전
+// 작업들이 이미 반영된 것으로 가정한 "그 시점의" 목록을 기준으로 판단한다.
+async function previewMediaOps(product, mediaOps, cache) {
+  let media = product.media.slice();
+  const results = [];
+  for (const op of mediaOps) {
+    const plan = await deriveMediaOpPlan(media, op, cache);
+    if (!plan) continue;
+    results.push({ action: plan.action, reason: plan.reason });
+    if (plan.action === "apply") media = plan.simulate(media);
+  }
+  return results;
+}
+
+// 여러 미디어 작업을 입력한 순서대로 실제 반영. 한 작업이 끝날 때마다 그 결과로
+// 목록을 갱신해 다음 작업이 최신 상태를 기준으로 판단하도록 한다.
+async function applyMediaOps(product, mediaOps, cache) {
+  let media = product.media.slice();
+  const results = [];
+  for (const op of mediaOps) {
+    const plan = await deriveMediaOpPlan(media, op, cache);
+    if (!plan) continue;
+    if (plan.action !== "apply") {
+      results.push({ action: plan.action, reason: plan.reason });
+      continue;
+    }
+    try {
+      const newId = await plan.execute(product.id, media);
+      media = plan.simulate(media);
+      if (newId) {
+        const idx = media.findIndex((m) => m.id === "__pending__");
+        if (idx !== -1) media[idx] = { id: newId, alt: media[idx].alt };
+      }
+      results.push({ action: "apply", reason: plan.reason });
+    } catch (err) {
+      results.push({ action: "error", reason: err.message });
+    }
+  }
+  return results;
 }
 
 function summarize(parts) {
@@ -146,7 +203,7 @@ function summarize(parts) {
 }
 
 // 상품 하나에 수정사항을 적용했을 때 어떤 일이 일어날지 계산 (파일 조회 등 읽기 전용 API는 호출하되
-// 실제 변경(mutation)은 하지 않음) - 미리보기와 실제 적용 양쪽에서 공통으로 사용
+// 실제 변경(mutation)은 하지 않음) - 미리보기 화면 전용
 async function evaluateModifications(product, modifications, cache) {
   const parts = [];
   if (modifications.title && modifications.title.trim()) parts.push({ action: "apply", reason: "제목 변경" });
@@ -156,20 +213,29 @@ async function evaluateModifications(product, modifications, cache) {
   const tagsPlan = planTags(product, modifications.tags);
   if (tagsPlan) parts.push(tagsPlan);
 
-  const mediaPlan = await planMedia(product, modifications.media, cache);
-  if (mediaPlan) parts.push(mediaPlan);
+  const mediaOps = modifications.mediaOps || [];
+  if (mediaOps.length) parts.push(...(await previewMediaOps(product, mediaOps, cache)));
 
-  return { summary: summarize(parts), tagsPlan, mediaPlan };
+  return { summary: summarize(parts) };
 }
 
-// 실제로 상품에 반영 (productUpdate + 미디어 mutation 실행)
+// 실제로 상품에 반영 (productUpdate + 미디어 작업들을 순서대로 실행)
 async function applyModifications(product, modifications, cache) {
-  const { summary, tagsPlan, mediaPlan } = await evaluateModifications(product, modifications, cache);
-
+  const parts = [];
   const input = { id: product.id };
-  if (modifications.title && modifications.title.trim()) input.title = modifications.title;
-  if (modifications.description && modifications.description.trim()) input.descriptionHtml = modifications.description;
-  if (tagsPlan && tagsPlan.action === "apply") input.tags = tagsPlan.newTags;
+  if (modifications.title && modifications.title.trim()) {
+    input.title = modifications.title;
+    parts.push({ action: "apply", reason: "제목 변경" });
+  }
+  if (modifications.description && modifications.description.trim()) {
+    input.descriptionHtml = modifications.description;
+    parts.push({ action: "apply", reason: "설명 변경" });
+  }
+  const tagsPlan = planTags(product, modifications.tags);
+  if (tagsPlan) {
+    parts.push(tagsPlan);
+    if (tagsPlan.action === "apply") input.tags = tagsPlan.newTags;
+  }
 
   try {
     if (Object.keys(input).length > 1) {
@@ -177,8 +243,9 @@ async function applyModifications(product, modifications, cache) {
       if (updated.productUpdate.userErrors.length)
         throw new Error(updated.productUpdate.userErrors.map((e) => e.message).join(", "));
     }
-    if (mediaPlan && mediaPlan.action === "apply") await mediaPlan.run();
-    return summary;
+    const mediaOps = modifications.mediaOps || [];
+    if (mediaOps.length) parts.push(...(await applyMediaOps(product, mediaOps, cache)));
+    return summarize(parts);
   } catch (err) {
     return { action: "error", reason: err.message };
   }
