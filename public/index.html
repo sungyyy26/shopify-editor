@@ -56,10 +56,11 @@
             <label class="chip" data-val="archived"><input type="checkbox">미게시</label>
           </div>
         </div>
-        <label class="field"><span class="lbl">제목</span><input type="text" id="f-title" placeholder="상품 제목에 포함된 단어"></label>
-        <label class="field"><span class="lbl">태그</span><input type="text" id="f-tag" placeholder="쉼표로 구분 (하나라도 포함하면 조회)"></label>
+        <label class="field"><span class="lbl">제목</span><input type="text" id="f-title" placeholder="상품 제목에 포함된 단어 (쉼표로 여러 개, *로 제외)"></label>
+        <label class="field"><span class="lbl">태그</span><input type="text" id="f-tag" placeholder="쉼표로 구분 (하나라도 포함, *로 제외)"></label>
         <label class="field"><span class="lbl">URL 핸들 (여러 개 가능)</span><textarea id="f-handle" rows="3" placeholder="한 줄에 하나씩, 핸들 또는 전체 URL 붙여넣기&#10;예: ad-202609-4288&#10;https://eqqualberryglobal.com/products/ad-202609-4301"></textarea></label>
-        <label class="field"><span class="lbl">템플릿</span><input type="text" id="f-template" placeholder="예: landing-amazon"></label>
+        <label class="field"><span class="lbl">템플릿</span><input type="text" id="f-template" placeholder="예: landing-amazon (*로 제외 가능)"></label>
+        <p class="panel-hint" style="margin:-8px 0 0;">제목/태그/템플릿은 쉼표로 여러 값을 입력할 수 있고, 값 앞에 <code>*</code>를 붙이면 그 값이 포함된 상품은 제외합니다 (예: "Amazon, *UK" → 제목에 Amazon은 포함하고 UK는 포함하지 않는 상품).</p>
         <div class="actions">
           <span class="hint-req" id="reqHint">조건을 1개 이상 입력해야 검색할 수 있습니다.</span>
           <button type="submit" class="submit" id="filterSubmitBtn" disabled>조건 검색</button>

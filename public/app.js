@@ -308,7 +308,7 @@ function newMediaOpRow() { return { infoList: [], newInfoList: [], order: "", mo
 
 // 방식별로 "정보" 필드가 뜻하는 대상이 다르므로 헷갈리지 않게 라벨을 동적으로 바꾼다.
 function infoLabelFor(mode) {
-  return { insert: "등록할 이미지", overwrite: "교체할 이미지 (기존)", delete: "삭제할 이미지" }[mode]
+  return { insert: "등록할 이미지", overwrite: "교체할 이미지 (기존)", delete: "삭제할 이미지", move: "확인할 이미지 (선택, 안전장치)" }[mode]
     || "정보 (등록된 이미지 제목/대체 텍스트로 검색)";
 }
 function orderPlaceholderFor(mode) {
@@ -338,7 +338,7 @@ function mediaOpRowTpl(row, idx) {
     + '<button type="button" class="chip-upload-btn" id="e-m-newinfo-upload-' + idx + '" hidden title="파일 업로드">📁 업로드</button>'
     + '<input type="file" accept="image/*" id="e-m-newinfo-file-' + idx + '" hidden></div>'
     + '<div class="ac-list" id="e-m-newinfo-ac-' + idx + '" hidden></div></label>'
-    + '<p class="panel-hint" style="margin:-4px 0 0;">"정보"(그리고 교체의 "변경할 이미지")는 Enter로 여러 개 추가할 수 있습니다. 2개 이상이면 순서도 쉼표로 같은 개수만큼 입력해 순서대로 1:1로 짝지어 각각 다른 이미지로 한 번에 처리합니다 (예: 정보 "VIS.jpg, TEST2.jpg" + 순서 "2, 3" → VIS.jpg는 2번, TEST2.jpg는 3번). 순서를 비워두면 추가는 맨 끝에, 교체/삭제는 위치와 무관하게 찾아서 처리합니다. 이동 모드에서는 정보를 사용하지 않습니다.</p>'
+    + '<p class="panel-hint" style="margin:-4px 0 0;">"정보"(그리고 교체의 "변경할 이미지")는 Enter로 여러 개 추가할 수 있습니다. 2개 이상이면 순서도 쉼표로 같은 개수만큼 입력해 순서대로 1:1로 짝지어 각각 다른 이미지로 한 번에 처리합니다 (예: 정보 "VIS.jpg, TEST2.jpg" + 순서 "2, 3" → VIS.jpg는 2번, TEST2.jpg는 3번). 순서를 비워두면 추가는 맨 끝에, 교체/삭제는 위치와 무관하게 찾아서 처리합니다. 이동 모드에서는 "정보"가 필수는 아니며, 입력하면 이동 전 그 위치의 이미지가 맞는지 확인하는 안전장치로만 쓰입니다(1개까지).</p>'
     + '<div class="field"><span class="lbl">방식</span><div class="modewrap" id="editModeWrap-' + idx + '">'
     + '<label class="mode-box" data-val="insert"><input type="checkbox">추가 — 지정 순서에 끼워 넣고 이후 밀기</label>'
     + '<label class="mode-box" data-val="overwrite"><input type="checkbox">교체 — 이미지를 다른 이미지로 바꾸기</label>'
@@ -471,7 +471,6 @@ function wireMediaOpsContainer() {
     function applyModeDisabled() {
       const isOverwrite = row.mode === "overwrite";
       moveToEl.disabled = row.mode !== "move";
-      infoEl.disabled = row.mode === "move";
       newInfoBox.classList.toggle("disabled", !isOverwrite);
       newInfoEl.disabled = !isOverwrite;
       infoLbl.textContent = infoLabelFor(row.mode);
@@ -625,7 +624,7 @@ function mediaOpsSummaryText(ops) {
   return ops.map((op, i) => (i + 1) + ". " + mediaSummaryText(op)).join(" / ");
 }
 function mediaSummaryText(op) {
-  if (op.mode === "move") return (op.order || "-") + "번 → " + (op.moveTo || "-") + "번 · 이동";
+  if (op.mode === "move") return (op.order || "-") + "번 → " + (op.moveTo || "-") + "번 · 이동" + (op.info ? ` (확인: "${op.info}")` : "");
   const parts = (op.items || []).map((it) => {
     if (op.mode === "overwrite") return `"${it.info}" → "${it.newInfo}"` + (it.order ? ` (${it.order}번)` : " (위치 무관)");
     if (op.mode === "insert") return `"${it.info}"` + (it.order ? ` (${it.order}번)` : " (맨 끝)");
@@ -722,7 +721,8 @@ function wireEditForm() {
 
       if (row.mode === "move") {
         if (!row.order || !row.moveTo) { showToast("이동 모드에서는 순서와 이동할 위치를 모두 입력하세요."); return; }
-        mediaOps.push({ mode: "move", order: row.order, moveTo: row.moveTo });
+        if (infoList.length > 1) { showToast("이동 모드에서는 확인할 이미지를 1개까지만 입력할 수 있습니다."); return; }
+        mediaOps.push({ mode: "move", order: row.order, moveTo: row.moveTo, info: infoList[0] || null });
         continue;
       }
 

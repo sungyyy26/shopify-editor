@@ -30,6 +30,25 @@ function mapProductNode(node) {
   };
 }
 
+// 쉼표로 구분한 값들을 포함(include)/제외(exclude) 두 목록으로 나눈다.
+// 값 앞에 *를 붙이면 "그 값이 포함되면 제외"하는 조건이 된다 (예: "Amazon, *UK" -> Amazon
+// 포함 + UK 미포함). 나머지 값은 기존처럼 포함 조건으로 취급한다.
+function parseIncludeExclude(raw) {
+  const include = [];
+  const exclude = [];
+  (raw || "").split(",").forEach((piece) => {
+    const trimmed = piece.trim();
+    if (!trimmed) return;
+    if (trimmed.startsWith("*")) {
+      const value = trimmed.slice(1).trim().toLowerCase();
+      if (value) exclude.push(value);
+    } else {
+      include.push(trimmed.toLowerCase());
+    }
+  });
+  return { include, exclude };
+}
+
 async function searchProducts(conditions) {
   const { title, tags, template } = conditions || {};
   const hasCondition =
@@ -50,22 +69,32 @@ async function searchProducts(conditions) {
     cursor = data.products.pageInfo.endCursor;
   }
 
-  // 제목/태그/템플릿은 부분 일치("포함")를 기대하므로 서버 쿼리 대신 여기서 필터링
+  // 제목/태그/템플릿은 부분 일치("포함")를 기대하므로 서버 쿼리 대신 여기서 필터링.
+  // 값 앞에 *를 붙이면 제외 조건으로 처리한다 (parseIncludeExclude 참고).
   if (title && title.trim()) {
-    const needle = title.trim().toLowerCase();
-    products = products.filter((p) => p.title.toLowerCase().includes(needle));
+    const { include, exclude } = parseIncludeExclude(title);
+    products = products.filter((p) => {
+      const t = p.title.toLowerCase();
+      return include.every((needle) => t.includes(needle)) && exclude.every((needle) => !t.includes(needle));
+    });
   }
   if (tags && tags.trim()) {
-    // 쉼표로 여러 태그를 입력하면 그 중 하나라도 포함하면 매칭 (OR)
-    const needles = tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+    // 포함 값은 쉼표로 여러 개 입력하면 그 중 하나라도 포함하면 매칭 (OR), 제외 값은 하나라도
+    // 걸리면 전부 제외 (AND NOT).
+    const { include, exclude } = parseIncludeExclude(tags);
     products = products.filter((p) => {
       const productTags = p.tags.map((t) => t.toLowerCase());
-      return needles.some((needle) => productTags.some((t) => t.includes(needle)));
+      const includeOk = include.length ? include.some((needle) => productTags.some((t) => t.includes(needle))) : true;
+      const excludeOk = exclude.every((needle) => !productTags.some((t) => t.includes(needle)));
+      return includeOk && excludeOk;
     });
   }
   if (template && template.trim()) {
-    const needle = template.trim().toLowerCase();
-    products = products.filter((p) => p.template.toLowerCase().includes(needle));
+    const { include, exclude } = parseIncludeExclude(template);
+    products = products.filter((p) => {
+      const t = p.template.toLowerCase();
+      return include.every((needle) => t.includes(needle)) && exclude.every((needle) => !t.includes(needle));
+    });
   }
   return products;
 }

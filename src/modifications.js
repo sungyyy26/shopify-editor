@@ -155,6 +155,10 @@ async function deriveMediaOpPlan(media, op, cache) {
     const to = parseInt(op.moveTo, 10);
     if (!from || !to) return { action: "error", reason: "이동 순서 값이 올바르지 않음" };
     if (!media[from - 1]) return { action: "skip", reason: `${from}번 위치에 이미지가 없음` };
+    // "정보"를 입력했다면 선택 사항인 안전장치로, 이동 전 그 위치의 이미지가 실제로
+    // 일치하는지 확인한다 (일치하지 않으면 엉뚱한 이미지를 옮기지 않도록 건너뜀).
+    if (infoList.length && !infoList.includes(mediaDisplayName(media[from - 1])))
+      return { action: "skip", reason: `${from}번 위치의 이미지가 다름 (실제: "${mediaDisplayName(media[from - 1]) || "제목 없음"}") - 안전을 위해 건너뜀` };
     if (to < 1 || to > media.length) return { action: "skip", reason: `${to}번은 잘못된 위치 (전체 ${media.length}개)` };
     if (from === to) return { action: "skip", reason: `이미 ${to}번 위치 (변경 없음)` };
     return {
@@ -271,7 +275,8 @@ async function deriveMediaOpPlan(media, op, cache) {
 // ({ mode, items: [{info, order, newInfo}, ...] }). deriveMediaOpPlan은 항상 단일 항목 기준으로
 // 계산하므로, 배치 작업을 병렬 배열 순서대로 여러 개의 단일 작업으로 펼쳐서 순차 실행한다.
 function expandMediaOp(op) {
-  if (!op || op.mode === "move") return [op];
+  if (!op) return [op];
+  if (op.mode === "move") return [{ ...op, infoList: op.info ? [op.info] : [] }];
   return (op.items || []).map((item) => ({
     mode: op.mode,
     infoList: item.info ? [item.info] : [],
@@ -340,8 +345,12 @@ async function evaluateModifications(product, modifications, cache) {
   const parts = [];
   const detail = {};
   if (modifications.title && modifications.title.trim()) {
-    parts.push({ action: "apply", reason: "제목 변경" });
-    detail.title = { before: product.title, after: modifications.title };
+    if (modifications.title === product.title) {
+      parts.push({ action: "skip", reason: "제목 변경 (변경 없음)" });
+    } else {
+      parts.push({ action: "apply", reason: "제목 변경" });
+      detail.title = { before: product.title, after: modifications.title };
+    }
   }
   if (modifications.description && modifications.description.trim()) {
     parts.push({ action: "apply", reason: "설명 변경" });
@@ -374,8 +383,12 @@ async function applyModifications(product, modifications, cache) {
   const parts = [];
   const input = { id: product.id };
   if (modifications.title && modifications.title.trim()) {
-    input.title = modifications.title;
-    parts.push({ action: "apply", reason: "제목 변경" });
+    if (modifications.title === product.title) {
+      parts.push({ action: "skip", reason: "제목 변경 (변경 없음)" });
+    } else {
+      input.title = modifications.title;
+      parts.push({ action: "apply", reason: "제목 변경" });
+    }
   }
   if (modifications.description && modifications.description.trim()) {
     input.descriptionHtml = modifications.description;
