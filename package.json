@@ -1,0 +1,14 @@
+{
+  "name": "shopify-editor",
+  "version": "1.0.0",
+  "description": "Condition-based bulk editor for Shopify products (title/description/media)",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=18"
+  }
+}

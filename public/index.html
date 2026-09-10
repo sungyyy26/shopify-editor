@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>Shopify Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@500;600;700;800;900&family=Noto+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="connect-wrap" id="connect-banner" hidden>
+  <h1>쇼피파이 일괄 편집기</h1>
+  <p class="sub" style="margin:0 auto 20px;">아직 스토어에 연결되지 않았습니다.</p>
+  <a href="/auth" class="submit" style="display:inline-block; text-decoration:none; padding:12px 26px; border-radius:980px; background:var(--accent); color:var(--accent-ink); font-family:'Gothic A1',sans-serif; font-weight:700;">Shopify 연결하기</a>
+</div>
+
+<div class="wrap" id="app" hidden>
+  <header class="top">
+    <div>
+      <p class="eyebrow">EQB · Product Ops</p>
+      <h1>쇼피파이 일괄 편집기</h1>
+      <p class="sub">Step 1에서 조건을 검색하고, Step 2에서 수정사항을 입력한 뒤 적용할 페이지를 고르고, Step 3에서 최종 확인 후 적용합니다.</p>
+    </div>
+    <svg class="logo" viewBox="0 0 220 100" width="56" height="25" aria-label="EQB">
+      <rect x="4" y="10" width="140" height="80" rx="40" fill="none" stroke="currentColor" stroke-width="7"/>
+      <rect x="76" y="10" width="140" height="80" rx="40" fill="none" stroke="currentColor" stroke-width="7"/>
+      <text x="44" y="61" font-size="30" font-weight="700" text-anchor="middle" fill="currentColor">EQ</text>
+      <text x="181" y="61" font-size="30" font-weight="700" text-anchor="middle" fill="currentColor">B</text>
+    </svg>
+  </header>
+
+  <div class="tabs" id="tabs">
+    <button type="button" class="tab-btn active" data-step="1"><span class="step-no">01</span>조건</button>
+    <button type="button" class="tab-btn" data-step="2" disabled><span class="step-no">02</span>수정사항 · 선택</button>
+    <button type="button" class="tab-btn" data-step="3" disabled><span class="step-no">03</span>최종 확인</button>
+  </div>
+
+  <div class="step-content" data-step-content="1">
+    <div class="panel">
+      <div class="panel-head"><span class="panel-num">01</span><span class="panel-title">조건</span></div>
+      <p class="panel-hint">아래 중 하나 이상 입력하세요.</p>
+      <div class="field">
+        <span class="lbl">★ 즐겨찾기</span>
+        <div class="chiprow" id="presetChips"></div>
+        <button type="button" class="btn-secondary" id="savePresetBtn" style="align-self:flex-start;margin-top:8px;">현재 조건 즐겨찾기로 저장</button>
+      </div>
+      <form id="filterForm">
+        <div class="field">
+          <span class="lbl">상태 (복수 선택 가능)</span>
+          <div class="chiprow" id="statusChips">
+            <label class="chip" data-val="all"><input type="checkbox">전체 상태</label>
+            <label class="chip" data-val="active"><input type="checkbox">활성</label>
+            <label class="chip" data-val="draft"><input type="checkbox">초안</label>
+            <label class="chip" data-val="archived"><input type="checkbox">미게시</label>
+          </div>
+        </div>
+        <label class="field"><span class="lbl">제목</span><input type="text" id="f-title" placeholder="상품 제목에 포함된 단어 (쉼표로 여러 개, *로 제외)"></label>
+        <label class="field"><span class="lbl">태그</span><input type="text" id="f-tag" placeholder="쉼표로 구분 (하나라도 포함, *로 제외)"></label>
+        <label class="field"><span class="lbl">URL 핸들 (여러 개 가능)</span><textarea id="f-handle" rows="3" placeholder="한 줄에 하나씩, 핸들 또는 전체 URL 붙여넣기&#10;예: ad-202609-4288&#10;https://eqqualberryglobal.com/products/ad-202609-4301"></textarea></label>
+        <label class="field"><span class="lbl">템플릿</span><input type="text" id="f-template" placeholder="예: landing-amazon (*로 제외 가능)"></label>
+        <p class="panel-hint" style="margin:-8px 0 0;">제목/태그/템플릿은 쉼표로 여러 값을 입력할 수 있고, 값 앞에 <code>*</code>를 붙이면 그 값이 포함된 상품은 제외합니다 (예: "Amazon, *UK" → 제목에 Amazon은 포함하고 UK는 포함하지 않는 상품).</p>
+        <div class="actions">
+          <span class="hint-req" id="reqHint">조건을 1개 이상 입력해야 검색할 수 있습니다.</span>
+          <button type="submit" class="submit" id="filterSubmitBtn" disabled>조건 검색</button>
+        </div>
+      </form>
+      <div id="step1Results"></div>
+      <div class="actions" id="step1NextWrap" hidden>
+        <span class="hint-req"></span>
+        <button type="button" class="submit" id="step1NextBtn">다음: 수정사항 입력 →</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="step-content" data-step-content="2" hidden>
+    <div class="panel" id="step2Panel"></div>
+  </div>
+
+  <div class="step-content" data-step-content="3" hidden>
+    <div class="panel" id="step3Panel"></div>
+  </div>
+
+  <section class="history">
+    <div class="history-head">
+      <h2>작업 내역</h2>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span class="count-badge" id="countBadge">0건</span>
+        <button type="button" class="btn-secondary" id="clearJobsBtn">전체 삭제</button>
+      </div>
+    </div>
+    <div id="jobList"><p class="empty">아직 검색한 작업이 없습니다.</p></div>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
